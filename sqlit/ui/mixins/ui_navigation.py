@@ -18,6 +18,11 @@ class UINavigationMixin:
     current_connection: Any
     current_config: Any
     _fullscreen_mode: str
+    _last_notification: str
+    _last_notification_severity: str
+    _last_notification_time: str
+    _notification_timer: Any
+    _notification_history: list
 
     def _set_fullscreen_mode(self, mode: str) -> None:
         """Set fullscreen mode: none|explorer|query|results."""
@@ -138,6 +143,7 @@ class UINavigationMixin:
         if status_str:
             status_str += "  "
 
+        # Build left side content
         try:
             query_input = self.query_one("#query-input", TextArea)
             if query_input.has_focus:
@@ -145,11 +151,96 @@ class UINavigationMixin:
                     mode_str = f"[bold orange1]-- {self.vim_mode.value} --[/]"
                 else:
                     mode_str = f"[dim]-- {self.vim_mode.value} --[/]"
-                status.update(f"{status_str}{mode_str}  {conn_info}")
+                left_content = f"{status_str}{mode_str}  {conn_info}"
             else:
-                status.update(f"{status_str}{conn_info}")
+                left_content = f"{status_str}{conn_info}"
         except Exception:
-            status.update(f"{status_str}{conn_info}")
+            left_content = f"{status_str}{conn_info}"
+
+        notification = getattr(self, "_last_notification", "")
+        timestamp = getattr(self, "_last_notification_time", "")
+        severity = getattr(self, "_last_notification_severity", "information")
+
+        if notification:
+            # Normal/warning notifications on right side
+            import re
+            left_plain = re.sub(r'\[.*?\]', '', left_content)
+            time_prefix = f"[dim]{timestamp}[/] " if timestamp else ""
+
+            if severity == "warning":
+                notif_str = f"{time_prefix}[#f0c674]{notification}[/]"
+            else:
+                notif_str = f"{time_prefix}{notification}"
+
+            notif_plain = f"{timestamp} {notification}" if timestamp else notification
+
+            try:
+                total_width = self.size.width - 2
+            except Exception:
+                total_width = 80
+
+            gap = total_width - len(left_plain) - len(notif_plain)
+            if gap > 2:
+                status.update(f"{left_content}{' ' * gap}{notif_str}")
+            else:
+                status.update(f"{left_content}  {notif_str}")
+        else:
+            status.update(left_content)
+
+    def notify(
+        self,
+        message: str,
+        *,
+        title: str = "",
+        severity: str = "information",
+        timeout: float = 3.0,
+    ) -> None:
+        """Show notification in status bar (takes over full bar temporarily).
+
+        Args:
+            message: The notification message.
+            title: Ignored (for API compatibility).
+            severity: One of "information", "warning", "error".
+            timeout: Seconds before auto-clearing (default 3s, errors stay 5s).
+        """
+        from datetime import datetime
+
+        # Cancel any existing timer
+        if hasattr(self, "_notification_timer") and self._notification_timer is not None:
+            self._notification_timer.stop()
+            self._notification_timer = None
+
+        timestamp = datetime.now().strftime("%H:%M:%S")
+        self._notification_history.append((timestamp, message, severity))
+
+        if severity == "error":
+            # Clear any status bar notification and show error as dialog
+            self._last_notification = ""
+            self._last_notification_severity = "information"
+            self._last_notification_time = ""
+            self._update_status_bar()
+            from ..screens import ErrorScreen
+            self.push_screen(ErrorScreen(message, timestamp))
+        else:
+            # Show normal/warning in status bar
+            self._last_notification = message
+            self._last_notification_severity = severity
+            self._last_notification_time = timestamp
+            self._update_status_bar()
+
+    def action_show_notifications(self) -> None:
+        """Show the notification history dialog."""
+        from ..screens import NotificationHistoryScreen
+
+        self.push_screen(NotificationHistoryScreen(self._notification_history))
+
+    def action_dismiss_notification(self) -> None:
+        """Dismiss the current notification."""
+        if self._last_notification:
+            self._last_notification = ""
+            self._last_notification_severity = "information"
+            self._last_notification_time = ""
+            self._update_status_bar()
 
     def action_toggle_fullscreen(self) -> None:
         """Toggle fullscreen for the currently focused pane."""

@@ -2,16 +2,23 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Callable
 
 from textual.widgets import Static
 
 if TYPE_CHECKING:
     from ...config import ConnectionConfig
+    from ...services import ConnectionSession
 
 
 class ConnectionMixin:
-    """Mixin providing connection management functionality."""
+    """Mixin providing connection management functionality.
+
+    Attributes:
+        _session_factory: Optional factory for creating ConnectionSession.
+            Set this in tests to inject a mock session factory.
+            Defaults to ConnectionSession.create when None.
+    """
 
     # These attributes are defined in the main app class
     connections: list
@@ -19,83 +26,14 @@ class ConnectionMixin:
     current_config: "ConnectionConfig | None"
     current_adapter: Any
     current_ssh_tunnel: Any
-    _connection_health: dict[str, bool]
+    _session: "ConnectionSession | None"
 
-    def _set_connection_health(self, name: str, ok: bool | None) -> None:
-        """Record a connection health status to affect tree coloring."""
-        if ok is None:
-            self._connection_health.pop(name, None)
-            return
-        self._connection_health[name] = ok
-
-    def _apply_connection_health(self, name: str, ok: bool | None) -> None:
-        """Apply connection health update and refresh tree."""
-        self._set_connection_health(name, ok)
-        try:
-            self.refresh_tree()
-        except Exception:
-            pass
-
-    def action_test_connections(self) -> None:
-        """Test all configured connections and mark failures in the tree."""
-        self.notify("Testing connections…")
-        self._test_connection_health()
-
-    def _test_connection_health(self) -> None:
-        """Test all configured connections in the background and mark failures."""
-        from concurrent.futures import ThreadPoolExecutor, as_completed
-
-        from ...db import get_adapter
-
-        connections = list(self.connections)
-
-        def test_one(config: "ConnectionConfig") -> tuple[str, bool | None]:
-            if (
-                getattr(config, "db_type", "") == "mssql"
-                and getattr(config, "auth_type", "") == "ad_interactive"
-            ):
-                return config.name, None
-
-            try:
-                adapter = get_adapter(config.db_type)
-                conn = adapter.connect(config)
-                try:
-                    close = getattr(conn, "close", None)
-                    if callable(close):
-                        close()
-                except Exception:
-                    pass
-                return config.name, True
-            except (ModuleNotFoundError, ImportError):
-                return config.name, None
-            except Exception:
-                return config.name, False
-
-        def work() -> None:
-            max_workers = min(32, max(1, len(connections)))
-            with ThreadPoolExecutor(max_workers=max_workers) as executor:
-                futures = [executor.submit(test_one, c) for c in connections]
-                for future in as_completed(futures):
-                    try:
-                        name, ok = future.result()
-                    except Exception:
-                        continue
-                    self.call_from_thread(self._apply_connection_health, name, ok)
-
-        self.run_worker(
-            work,
-            group="connection-health",
-            name="connection-health",
-            description="Testing connections",
-            thread=True,
-            exclusive=True,
-        )
+    # DI seam for testing - set to override session creation
+    _session_factory: Callable[["ConnectionConfig"], "ConnectionSession"] | None = None
 
     def connect_to_server(self, config: "ConnectionConfig") -> None:
-        """Connect to a database."""
-        from dataclasses import replace
-
-        from ...db import create_ssh_tunnel, get_adapter
+        """Connect to a database (async, non-blocking)."""
+        from ...services import ConnectionSession
 
         # Check for pyodbc only if it's a SQL Server connection
         try:
@@ -108,70 +46,62 @@ class ConnectionMixin:
             self.notify("pyodbc not installed. Run: pip install pyodbc", severity="error")
             return
 
-        try:
-            # Close any existing SSH tunnel
-            if self.current_ssh_tunnel:
-                try:
-                    self.current_ssh_tunnel.stop()
-                except Exception:
-                    pass
-                self.current_ssh_tunnel = None
-
-            # Create SSH tunnel if enabled
-            tunnel, host, port = create_ssh_tunnel(config)
-            self.current_ssh_tunnel = tunnel
-
-            # If SSH tunnel was created, use the tunnel's local address
-            if tunnel:
-                connect_config = replace(config, server=host, port=str(port))
-            else:
-                connect_config = config
-
-            adapter = get_adapter(config.db_type)
-            self.current_connection = adapter.connect(connect_config)
-            self.current_config = config  # Store original config (not tunneled)
-            self.current_adapter = adapter
-            self._set_connection_health(config.name, True)
-
-            status = self.query_one("#status-bar", Static)
-            display_info = config.get_display_info()
-            ssh_indicator = " [SSH]" if tunnel else ""
-            status.update(f"[#90EE90]Connected to {config.name}[/] ({display_info}){ssh_indicator}")
-
-            self.refresh_tree()
-            self._load_schema_cache()
-            self.notify(f"Connected to {config.name}")
-
-        except Exception as e:
-            # Clean up SSH tunnel on failure
-            if self.current_ssh_tunnel:
-                try:
-                    self.current_ssh_tunnel.stop()
-                except Exception:
-                    pass
-                self.current_ssh_tunnel = None
-            self._set_connection_health(config.name, False)
-            self.refresh_tree()
-            self.notify(f"Connection failed: {e}", severity="error")
-
-    def _disconnect_silent(self) -> None:
-        """Disconnect from current database without notification."""
-        if self.current_connection:
-            try:
-                self.current_connection.close()
-            except Exception:
-                pass
+        # Close any existing session first
+        if hasattr(self, "_session") and self._session:
+            self._session.close()
+            self._session = None
             self.current_connection = None
             self.current_config = None
             self.current_adapter = None
-
-        # Close SSH tunnel if active
-        if self.current_ssh_tunnel:
-            try:
-                self.current_ssh_tunnel.stop()
-            except Exception:
-                pass
             self.current_ssh_tunnel = None
+
+        # Show connecting status
+        self.notify(f"Connecting to {config.name}...")
+
+        # Use injected factory or default
+        create_session = self._session_factory or ConnectionSession.create
+
+        def work() -> "ConnectionSession":
+            """Create connection in worker thread."""
+            return create_session(config)
+
+        def on_success(session: "ConnectionSession") -> None:
+            """Handle successful connection on main thread."""
+            self._session = session
+            self.current_connection = session.connection
+            self.current_config = config
+            self.current_adapter = session.adapter
+            self.current_ssh_tunnel = session.tunnel
+
+            self.refresh_tree()
+            self._load_schema_cache()
+
+        def on_error(error: Exception) -> None:
+            """Handle connection failure on main thread."""
+            self.notify(f"Connection failed: {error}", severity="error")
+
+        def do_work() -> None:
+            """Worker function with error handling."""
+            try:
+                session = work()
+                self.call_from_thread(on_success, session)
+            except Exception as e:
+                self.call_from_thread(on_error, e)
+
+        self.run_worker(do_work, name=f"connect-{config.name}", thread=True, exclusive=True)
+
+    def _disconnect_silent(self) -> None:
+        """Disconnect from current database without notification."""
+        # Use session's close method for proper cleanup
+        if hasattr(self, "_session") and self._session:
+            self._session.close()
+            self._session = None
+
+        # Clear instance variables
+        self.current_connection = None
+        self.current_config = None
+        self.current_adapter = None
+        self.current_ssh_tunnel = None
 
     def action_disconnect(self) -> None:
         """Disconnect from current database."""

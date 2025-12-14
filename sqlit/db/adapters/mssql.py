@@ -29,11 +29,57 @@ class SQLServerAdapter(DatabaseAdapter):
     def default_schema(self) -> str:
         return "dbo"
 
+    def _build_connection_string(self, config: "ConnectionConfig") -> str:
+        """Build ODBC connection string from config.
+
+        This method encapsulates the SQL Server-specific connection string
+        building logic that was previously in ConnectionConfig.get_connection_string().
+
+        Args:
+            config: Connection configuration.
+
+        Returns:
+            ODBC connection string for pyodbc.
+        """
+        from ...config import AuthType
+
+        server_with_port = config.server
+        if config.port and config.port != "1433":
+            server_with_port = f"{config.server},{config.port}"
+
+        base = (
+            f"DRIVER={{{config.driver}}};"
+            f"SERVER={server_with_port};"
+            f"DATABASE={config.database or 'master'};"
+            f"TrustServerCertificate=yes;"
+        )
+
+        auth = config.get_auth_type()
+
+        if auth == AuthType.WINDOWS:
+            return base + "Trusted_Connection=yes;"
+        elif auth == AuthType.SQL_SERVER:
+            return base + f"UID={config.username};PWD={config.password};"
+        elif auth == AuthType.AD_PASSWORD:
+            return (
+                base
+                + f"Authentication=ActiveDirectoryPassword;"
+                f"UID={config.username};PWD={config.password};"
+            )
+        elif auth == AuthType.AD_INTERACTIVE:
+            return (
+                base + f"Authentication=ActiveDirectoryInteractive;" f"UID={config.username};"
+            )
+        elif auth == AuthType.AD_INTEGRATED:
+            return base + "Authentication=ActiveDirectoryIntegrated;"
+
+        return base + "Trusted_Connection=yes;"
+
     def connect(self, config: "ConnectionConfig") -> Any:
         """Connect to SQL Server using pyodbc."""
         import pyodbc
 
-        conn_str = config.get_connection_string()
+        conn_str = self._build_connection_string(config)
         return pyodbc.connect(conn_str, timeout=10)
 
     def get_databases(self, conn: Any) -> list[str]:

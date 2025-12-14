@@ -10,6 +10,7 @@ from textual.worker import Worker
 
 if TYPE_CHECKING:
     from ...config import ConnectionConfig
+    from ...services import CancellableQuery, QueryService
     from ...widgets import VimMode
 
 # Spinner frames for loading animation
@@ -17,7 +18,13 @@ SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇",
 
 
 class QueryMixin:
-    """Mixin providing query execution functionality."""
+    """Mixin providing query execution functionality.
+
+    Attributes:
+        _query_service: Optional QueryService instance.
+            Set this in tests to inject a mock query service.
+            Defaults to a new QueryService() when None.
+    """
 
     # These attributes are defined in the main app class
     current_connection: Any
@@ -31,6 +38,10 @@ class QueryMixin:
     _query_executing: bool
     _spinner_index: int
     _spinner_timer: Timer | None
+    _cancellable_query: "CancellableQuery | None"
+
+    # DI seam for testing - set to override query service
+    _query_service: "QueryService | None" = None
 
     def action_execute_query(self) -> None:
         """Execute the current query."""
@@ -98,53 +109,65 @@ class QueryMixin:
         self._update_status_bar()
 
     async def _run_query_async(self, query: str, keep_insert_mode: bool) -> None:
-        """Run query asynchronously in a worker thread."""
+        """Run query asynchronously using a cancellable dedicated connection."""
         import asyncio
 
+        from ...services import CancellableQuery, QueryResult, QueryService
+
         adapter = self.current_adapter
-        connection = self.current_connection
         config = self.current_config
 
-        query_type = query.strip().upper().split()[0] if query.strip() else ""
-        is_select_query = query_type in (
-            "SELECT",
-            "WITH",
-            "SHOW",
-            "DESCRIBE",
-            "EXPLAIN",
-            "PRAGMA",
+        if not adapter or not config:
+            self._display_query_error("Not connected")
+            self._stop_query_spinner()
+            return
+
+        # Create cancellable query with dedicated connection
+        cancellable = CancellableQuery(
+            sql=query,
+            config=config,
+            adapter=adapter,
         )
+        self._cancellable_query = cancellable
+
+        # Use injected service or default (for history saving)
+        service = self._query_service or QueryService()
 
         try:
-            if is_select_query:
-                # Run blocking DB call in thread pool
-                max_fetch_rows = 10000
-                columns, rows, truncated = await asyncio.to_thread(
-                    adapter.execute_query, connection, query, max_fetch_rows
-                )
-                row_count = len(rows)
+            # Execute on dedicated connection (cancellable via connection close)
+            max_fetch_rows = 10000
 
-                # Update UI (we're back on main thread after await)
-                self._display_query_results(columns, list(rows), row_count, truncated)
+            result = await asyncio.to_thread(
+                cancellable.execute,
+                max_fetch_rows,
+            )
+
+            # Save to history after successful execution
+            service._save_to_history(config.name, query)
+
+            # Update UI (we're back on main thread after await)
+            if isinstance(result, QueryResult):
+                self._display_query_results(
+                    result.columns, result.rows, result.row_count, result.truncated
+                )
             else:
-                affected = await asyncio.to_thread(
-                    adapter.execute_non_query, connection, query
-                )
-
-                # Update UI
-                self._display_non_query_result(affected)
-
-            # Save to history
-            if config:
-                from ...config import save_query_to_history
-                save_query_to_history(config.name, query)
+                self._display_non_query_result(result.rows_affected)
 
             if keep_insert_mode:
                 self._restore_insert_mode()
 
+        except RuntimeError as e:
+            # Query was cancelled
+            if "cancelled" in str(e).lower():
+                pass  # Already handled by action_cancel_query
+            else:
+                self._display_query_error(str(e))
         except Exception as e:
-            self._display_query_error(str(e))
+            # Don't show error if query was cancelled
+            if not cancellable.is_cancelled:
+                self._display_query_error(str(e))
         finally:
+            self._cancellable_query = None
             # Always stop the spinner when done
             self._stop_query_spinner()
 
@@ -211,6 +234,11 @@ class QueryMixin:
             self.notify("No query running")
             return
 
+        # Cancel the cancellable query (closes dedicated connection)
+        if hasattr(self, "_cancellable_query") and self._cancellable_query is not None:
+            self._cancellable_query.cancel()
+
+        # Also cancel the worker
         if hasattr(self, "_query_worker") and self._query_worker is not None:
             self._query_worker.cancel()
             self._query_worker = None
@@ -231,6 +259,10 @@ class QueryMixin:
 
         # Cancel query if running
         if getattr(self, "_query_executing", False):
+            # Cancel the cancellable query (closes dedicated connection)
+            if hasattr(self, "_cancellable_query") and self._cancellable_query is not None:
+                self._cancellable_query.cancel()
+
             if hasattr(self, "_query_worker") and self._query_worker is not None:
                 self._query_worker.cancel()
                 self._query_worker = None

@@ -124,7 +124,22 @@ class ConnectionConfig:
             return AuthType.SQL_SERVER
 
     def get_connection_string(self) -> str:
-        """Build the connection string for SQL Server."""
+        """Build the connection string for SQL Server.
+
+        .. deprecated::
+            This method is deprecated. Connection string building is now
+            handled internally by SQLServerAdapter._build_connection_string().
+            Use SQLServerAdapter.connect() directly instead.
+        """
+        import warnings
+
+        warnings.warn(
+            "ConnectionConfig.get_connection_string() is deprecated. "
+            "Connection string building is now handled internally by SQLServerAdapter.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+
         if self.db_type != "mssql":
             raise ValueError("get_connection_string() is only for SQL Server connections")
 

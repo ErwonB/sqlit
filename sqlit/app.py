@@ -199,6 +199,8 @@ class SSMSTUI(
         Binding("Y", "copy_row", "Copy row", show=False),
         Binding("a", "copy_results", "Copy results", show=False),
         Binding("ctrl+c", "cancel_operation", "Cancel", show=False),
+        Binding("N", "show_notifications", "Notifications", show=False),
+        Binding("d", "dismiss_notification", "Dismiss", show=False),
     ]
 
     def __init__(self):
@@ -210,6 +212,8 @@ class SSMSTUI(
         self.current_ssh_tunnel: Any | None = None
         self.vim_mode: VimMode = VimMode.NORMAL
         self._expanded_paths: set[str] = set()
+        self._loading_nodes: set[str] = set()
+        self._session: Any | None = None
         self._schema_cache: dict = {
             "tables": [],
             "views": [],
@@ -226,9 +230,14 @@ class SSMSTUI(
         self._last_result_row_count: int = 0
         self._internal_clipboard: str = ""
         self._fullscreen_mode: str = "none"
-        self._connection_health: dict[str, bool] = {}
+        self._last_notification: str = ""
+        self._last_notification_severity: str = "information"
+        self._last_notification_time: str = ""
+        self._notification_timer = None
+        self._notification_history: list = []
         self._query_worker = None
         self._query_executing: bool = False
+        self._cancellable_query: Any | None = None
         self._spinner_index: int = 0
         self._spinner_timer = None
         # Schema indexing state
@@ -237,6 +246,7 @@ class SSMSTUI(
         self._schema_spinner_index: int = 0
         self._schema_spinner_timer = None
         self._table_metadata: dict = {}
+        self._columns_loading: set[str] = set()
 
     def push_screen(self, screen, callback=None, wait_for_dismiss: bool = False):
         """Override push_screen to hide footer when showing modal dialogs."""

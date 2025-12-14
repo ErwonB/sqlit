@@ -37,6 +37,8 @@ class AutocompleteMixin:
     _schema_spinner_timer: Timer | None
     # Table metadata for lazy column loading: {display_name.lower(): (schema, table, database)}
     _table_metadata: dict[str, tuple[str, str, str | None]]
+    # Track in-flight column loading requests
+    _columns_loading: set[str]
 
     def _get_word_before_cursor(self, text: str, cursor_pos: int) -> tuple[str, str]:
         """Get the current word being typed and the context keyword before it."""
@@ -97,8 +99,16 @@ class AutocompleteMixin:
         return suggestions[:50]
 
     def _load_columns_for_table(self, table_name: str) -> None:
-        """Lazy load columns for a specific table."""
+        """Lazy load columns for a specific table (async via worker)."""
         if not self.current_connection or not self.current_adapter:
+            return
+
+        # Initialize _columns_loading if not present
+        if not hasattr(self, "_columns_loading") or self._columns_loading is None:
+            self._columns_loading = set()
+
+        # Skip if already loading this table
+        if table_name in self._columns_loading:
             return
 
         # Check if we have metadata for this table
@@ -107,18 +117,39 @@ class AutocompleteMixin:
             return
 
         schema_name, actual_table_name, database = metadata
-        adapter = self.current_adapter
-        connection = self.current_connection
+        self._columns_loading.add(table_name)
 
-        try:
-            columns = adapter.get_columns(connection, actual_table_name, database, schema_name)
-            column_names = [c.name for c in columns]
-            self._schema_cache["columns"][table_name] = column_names
-            # Also cache by actual table name
-            self._schema_cache["columns"][actual_table_name.lower()] = column_names
-        except Exception:
-            # Cache empty list to avoid repeated attempts
-            self._schema_cache["columns"][table_name] = []
+        def work() -> None:
+            """Run in worker thread."""
+            adapter = self.current_adapter
+            connection = self.current_connection
+            if not adapter or not connection:
+                column_names = []
+            else:
+                try:
+                    columns = adapter.get_columns(connection, actual_table_name, database, schema_name)
+                    column_names = [c.name for c in columns]
+                except Exception:
+                    column_names = []
+
+            # Update cache on main thread
+            self.call_from_thread(
+                self._on_autocomplete_columns_loaded,
+                table_name,
+                actual_table_name,
+                column_names,
+            )
+
+        self.run_worker(work, name=f"load-columns-{table_name}", thread=True, exclusive=False)
+
+    def _on_autocomplete_columns_loaded(
+        self, table_name: str, actual_table_name: str, column_names: list[str]
+    ) -> None:
+        """Handle column load completion for autocomplete on main thread."""
+        self._columns_loading.discard(table_name)
+        self._schema_cache["columns"][table_name] = column_names
+        # Also cache by actual table name
+        self._schema_cache["columns"][actual_table_name.lower()] = column_names
 
     def _show_autocomplete(self, suggestions: list[str], filter_text: str) -> None:
         """Show the autocomplete dropdown with suggestions."""

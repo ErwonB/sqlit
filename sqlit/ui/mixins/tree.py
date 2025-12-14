@@ -8,6 +8,7 @@ from textual.widgets import Tree
 
 if TYPE_CHECKING:
     from ...config import ConnectionConfig
+    from ...services import ConnectionSession
 
 
 class TreeMixin:
@@ -19,7 +20,8 @@ class TreeMixin:
     current_config: "ConnectionConfig | None"
     current_adapter: Any
     _expanded_paths: set[str]
-    _connection_health: dict[str, bool]
+    _session: "ConnectionSession | None"
+    _loading_nodes: set
 
     def _db_type_badge(self, db_type: str) -> str:
         """Get short badge for database type."""
@@ -44,13 +46,8 @@ class TreeMixin:
         for conn in self.connections:
             display_info = conn.get_display_info()
             db_type_label = self._db_type_badge(conn.db_type)
-            health = self._connection_health.get(conn.name)
-            if health is False:
-                name_markup = f"[dim #ff6b6b]{conn.name}[/]"
-            else:
-                name_markup = f"[dim]{conn.name}[/dim]"
             node = tree.root.add(
-                f"{name_markup} [{db_type_label}] ({display_info})"
+                f"[dim]{conn.name}[/dim] [{db_type_label}] ({display_info})"
             )
             node.data = ("connection", conn)
             node.allow_expand = True
@@ -69,11 +66,8 @@ class TreeMixin:
         def get_conn_label(config, connected=False):
             display_info = config.get_display_info()
             db_type_label = self._db_type_badge(config.db_type)
-            health = self._connection_health.get(config.name)
             if connected:
                 name = f"[green]{config.name}[/green]"
-            elif health is False:
-                name = f"[#ff6b6b]{config.name}[/]"
             else:
                 name = config.name
             return f"{name} [{db_type_label}] ({display_info})"
@@ -207,63 +201,157 @@ class TreeMixin:
             return
 
         data = node.data
-        adapter = self.current_adapter
 
-        if len(list(node.children)) > 0:
+        # Skip if already has children (not just loading placeholder)
+        children = list(node.children)
+        if children:
+            # Check if it's just a loading placeholder
+            if len(children) == 1 and children[0].data == ("loading",):
+                return  # Already loading
+            if children[0].data != ("loading",):
+                return  # Already loaded
+
+        # Initialize _loading_nodes if not present
+        if not hasattr(self, "_loading_nodes") or self._loading_nodes is None:
+            self._loading_nodes = set()
+
+        # Get node path to track loading state
+        node_path = self._get_node_path(node)
+        if node_path in self._loading_nodes:
+            return  # Already loading this node
+
+        # Handle table/view column expansion
+        if data[0] in ("table", "view") and len(data) >= 4:
+            self._loading_nodes.add(node_path)
+            loading_node = node.add_leaf("[dim italic]Loading...[/]")
+            loading_node.data = ("loading",)
+            self._load_columns_async(node, data)
             return
 
-        try:
-            if data[0] == "table" and len(data) >= 4:
-                db_name = data[1]
-                schema_name = data[2]
-                table_name = data[3]
-                columns = adapter.get_columns(self.current_connection, table_name, db_name, schema_name)
-                for col in columns:
-                    child = node.add_leaf(f"[dim]{col.name}[/] [italic dim]{col.data_type}[/]")
-                    child.data = ("column", db_name, schema_name, table_name, col.name)
-                return
+        # Handle folder expansion
+        if data[0] == "folder" and len(data) >= 3:
+            self._loading_nodes.add(node_path)
+            loading_node = node.add_leaf("[dim italic]Loading...[/]")
+            loading_node.data = ("loading",)
+            self._load_folder_async(node, data)
+            return
 
-            if data[0] == "view" and len(data) >= 4:
-                db_name = data[1]
-                schema_name = data[2]
-                view_name = data[3]
-                columns = adapter.get_columns(self.current_connection, view_name, db_name, schema_name)
-                for col in columns:
-                    child = node.add_leaf(f"[dim]{col.name}[/] [italic dim]{col.data_type}[/]")
-                    child.data = ("column", db_name, schema_name, view_name, col.name)
-                return
+    def _load_columns_async(self, node, data: tuple) -> None:
+        """Spawn worker to load columns for a table/view."""
+        db_name = data[1]
+        schema_name = data[2]
+        obj_name = data[3]
 
-            if data[0] != "folder" or len(data) < 3:
-                return
+        def work() -> None:
+            """Run in worker thread."""
+            try:
+                if not self._session:
+                    columns = []
+                else:
+                    adapter = self._session.adapter
+                    conn = self._session.connection
+                    columns = adapter.get_columns(conn, obj_name, db_name, schema_name)
 
-            folder_type = data[1]
-            db_name = data[2]
+                # Update UI from worker thread
+                self.call_from_thread(self._on_columns_loaded, node, db_name, schema_name, obj_name, columns)
+            except Exception as e:
+                self.call_from_thread(self._on_tree_load_error, node, f"Error loading columns: {e}")
 
-            if folder_type == "tables":
-                tables = adapter.get_tables(self.current_connection, db_name)
-                for schema_name, table_name in tables:
-                    display_name = adapter.format_table_name(schema_name, table_name)
-                    child = node.add(display_name)
-                    child.data = ("table", db_name, schema_name, table_name)
-                    child.allow_expand = True
+        self.run_worker(work, name=f"load-columns-{obj_name}", thread=True, exclusive=False)
 
-            elif folder_type == "views":
-                views = adapter.get_views(self.current_connection, db_name)
-                for schema_name, view_name in views:
-                    display_name = adapter.format_table_name(schema_name, view_name)
-                    child = node.add(display_name)
-                    child.data = ("view", db_name, schema_name, view_name)
-                    child.allow_expand = True
+    def _on_columns_loaded(self, node, db_name: str, schema_name: str, obj_name: str, columns: list) -> None:
+        """Handle column load completion on main thread."""
+        node_path = self._get_node_path(node)
+        self._loading_nodes.discard(node_path)
 
-            elif folder_type == "procedures":
-                if adapter.supports_stored_procedures:
-                    procedures = adapter.get_procedures(self.current_connection, db_name)
-                    for proc_name in procedures:
-                        child = node.add(proc_name)
-                        child.data = ("procedure", db_name, proc_name)
+        # Remove loading placeholder
+        for child in list(node.children):
+            if child.data == ("loading",):
+                child.remove()
 
-        except Exception as e:
-            self.notify(f"Error loading: {e}", severity="error")
+        # Add column nodes
+        for col in columns:
+            child = node.add_leaf(f"[dim]{col.name}[/] [italic dim]{col.data_type}[/]")
+            child.data = ("column", db_name, schema_name, obj_name, col.name)
+
+    def _load_folder_async(self, node, data: tuple) -> None:
+        """Spawn worker to load folder contents (tables/views/procedures)."""
+        folder_type = data[1]
+        db_name = data[2]
+
+        def work() -> None:
+            """Run in worker thread."""
+            try:
+                if not self._session:
+                    items = []
+                else:
+                    adapter = self._session.adapter
+                    conn = self._session.connection
+
+                    if folder_type == "tables":
+                        items = [("table", s, t) for s, t in adapter.get_tables(conn, db_name)]
+                    elif folder_type == "views":
+                        items = [("view", s, v) for s, v in adapter.get_views(conn, db_name)]
+                    elif folder_type == "procedures":
+                        if adapter.supports_stored_procedures:
+                            items = [("procedure", p) for p in adapter.get_procedures(conn, db_name)]
+                        else:
+                            items = []
+                    else:
+                        items = []
+
+                # Update UI from worker thread
+                self.call_from_thread(self._on_folder_loaded, node, db_name, folder_type, items)
+            except Exception as e:
+                self.call_from_thread(self._on_tree_load_error, node, f"Error loading: {e}")
+
+        self.run_worker(work, name=f"load-folder-{folder_type}", thread=True, exclusive=False)
+
+    def _on_folder_loaded(self, node, db_name: str | None, folder_type: str, items: list) -> None:
+        """Handle folder load completion on main thread."""
+        node_path = self._get_node_path(node)
+        self._loading_nodes.discard(node_path)
+
+        # Remove loading placeholder
+        for child in list(node.children):
+            if child.data == ("loading",):
+                child.remove()
+
+        if not self._session:
+            return
+
+        adapter = self._session.adapter
+
+        # Add nodes based on type
+        for item in items:
+            if item[0] == "table":
+                schema_name, table_name = item[1], item[2]
+                display_name = adapter.format_table_name(schema_name, table_name)
+                child = node.add(display_name)
+                child.data = ("table", db_name, schema_name, table_name)
+                child.allow_expand = True
+            elif item[0] == "view":
+                schema_name, view_name = item[1], item[2]
+                display_name = adapter.format_table_name(schema_name, view_name)
+                child = node.add(display_name)
+                child.data = ("view", db_name, schema_name, view_name)
+                child.allow_expand = True
+            elif item[0] == "procedure":
+                proc_name = item[1]
+                child = node.add(proc_name)
+                child.data = ("procedure", db_name, proc_name)
+
+    def _on_tree_load_error(self, node, error_message: str) -> None:
+        """Handle tree load error on main thread."""
+        node_path = self._get_node_path(node)
+        self._loading_nodes.discard(node_path)
+
+        # Remove loading placeholder
+        for child in list(node.children):
+            if child.data == ("loading",):
+                child.remove()
+
+        self.notify(error_message, severity="error")
 
     def on_tree_node_selected(self, event: Tree.NodeSelected) -> None:
         """Handle tree node selection (double-click/enter)."""

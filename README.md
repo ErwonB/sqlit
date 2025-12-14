@@ -16,18 +16,16 @@ A lightweight TUI for people who just want to run some queries fast.
 
 ## Features
 
-- **Multi-database support**: SQL Server, PostgreSQL, MySQL, SQLite, MariaDB, Oracle, DuckDB, and CockroachDB
-- **SSH tunnel support**: Connect to remote databases through SSH with password or key-based authentication
-- **Query history**: Automatically saves queries per connection, searchable and sortable
-- Fast and intuitive keyboard only control
-- Context based help (no need to memorize tons of hot-keys)
+- **Connection manager UI** - Save connections, switch between databases without CLI args
+- **Just run `sqlit`** - No CLI config needed, pick a connection and go
+- **Multi-database out of the box** - SQL Server, PostgreSQL, MySQL, SQLite, MariaDB, Oracle, DuckDB, CockroachDB - no adapters to install
+- **SSH tunnels built-in** - Connect to remote databases securely with password or key auth
+- **Vim-style editing** - Modal editing for terminal purists
+- **Query history** - Automatically saves queries per connection, searchable and sortable
+- Context-aware help (no need to memorize keybindings)
 - Browse databases, tables, views, and stored procedures
-- Execute SQL queries with syntax highlighting
-- Vim-style query editing
 - SQL autocomplete for tables, columns, and procedures
-- Multiple authentication methods (Windows, SQL Server, Entra ID)
-- Save and manage connections
-- Responsive terminal UI
+- Multiple auth methods (Windows, SQL Server, Entra ID)
 - CLI mode for scripting and AI agents
 - Themes (Tokyo Night, Nord, and more)
 - Auto-detects and installs ODBC drivers (SQL Server)

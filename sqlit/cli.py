@@ -104,6 +104,13 @@ def main() -> int:
         choices=["table", "csv", "json"],
         help="Output format (default: table)",
     )
+    query_parser.add_argument(
+        "--limit",
+        "-l",
+        type=int,
+        default=1000,
+        help="Maximum rows to fetch (default: 1000, use 0 for unlimited)",
+    )
 
     args = parser.parse_args()
 
