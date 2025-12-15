@@ -1,6 +1,6 @@
 # sqlit
 
-**The lazygit of SQL databases.** Connect to Postgres, MySQL, SQL Server, SQLite, Turso, and more from your terminal in seconds.
+**The lazygit of SQL databases.** Connect to Postgres, MySQL, SQL Server, SQLite, Supabase, Turso, and more from your terminal in seconds.
 
 A lightweight TUI for people who just want to run some queries fast.
 
@@ -18,7 +18,7 @@ A lightweight TUI for people who just want to run some queries fast.
 
 - **Connection manager UI** - Save connections, switch between databases without CLI args
 - **Just run `sqlit`** - No CLI config needed, pick a connection and go
-- **Multi-database out of the box** - SQL Server, PostgreSQL, MySQL, SQLite, MariaDB, Oracle, DuckDB, CockroachDB, Turso - no adapters to install
+- **Multi-database out of the box** - SQL Server, PostgreSQL, MySQL, SQLite, MariaDB, Oracle, DuckDB, CockroachDB, Supabase, Turso - no adapters to install
 - **SSH tunnels built-in** - Connect to remote databases securely with password or key auth
 - **Vim-style editing** - Modal editing for terminal purists
 - **Query history** - Automatically saves queries per connection, searchable and sortable
@@ -40,7 +40,7 @@ The problem got severely worse when I switched to Linux and had to rely on VS CO
 
 I tried to use some existing TUI's for SQL, but they were not intuitive for me and I missed the immediate ease of use that other TUI's such as Lazygit provides.
 
-sqlit is a lightweight database TUI that is easy to use and beautiful to look at, just connect and query. It's for you that just wants to run queries toward your database without launching applications that eats your ram and takes time to load up. Sqlit supports SQL Server, PostgreSQL, MySQL, SQLite, MariaDB, Oracle, DuckDB, CockroachDB, and Turso, and is designed to make it easy and enjoyable to access your data, not painful.
+sqlit is a lightweight database TUI that is easy to use and beautiful to look at, just connect and query. It's for you that just wants to run queries toward your database without launching applications that eats your ram and takes time to load up. Sqlit supports SQL Server, PostgreSQL, MySQL, SQLite, MariaDB, Oracle, DuckDB, CockroachDB, Supabase, and Turso, and is designed to make it easy and enjoyable to access your data, not painful.
 
 
 ## Installation
@@ -58,6 +58,14 @@ sqlit
 ```
 
 The keybindings are shown at the bottom of the screen.
+
+### Try it without a database
+
+Want to explore the UI without connecting to a real database? Run with mock data:
+
+```bash
+sqlit --mock=sqlite-demo
+```
 
 ### CLI
 
@@ -161,6 +169,7 @@ Each database provider requires specific Python packages. sqlit will prompt you 
 | Oracle | `oracledb` | `pip install oracledb` |
 | DuckDB | `duckdb` | `pip install duckdb` |
 | CockroachDB | `psycopg2-binary` | `pip install psycopg2-binary` |
+| Supabase | `psycopg2-binary` | `pip install psycopg2-binary` |
 | Turso | `libsql-client` | `pip install libsql-client` |
 
 **Note:** SQL Server also requires the ODBC driver. On first connection attempt, sqlit will detect if it's missing and help you install it.

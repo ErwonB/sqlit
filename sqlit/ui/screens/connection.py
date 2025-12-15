@@ -24,7 +24,7 @@ from ...config import (
     DATABASE_TYPE_LABELS,
     DatabaseType,
 )
-from ...db import create_ssh_tunnel, get_adapter, get_connection_schema
+from ...db import create_ssh_tunnel, get_adapter, get_connection_schema, has_advanced_auth, is_file_based, supports_ssh
 from ...fields import FieldDefinition, FieldGroup, FieldType, schema_to_field_definitions
 from ...validation import ValidationState, validate_connection_form
 from ...widgets import Dialog
@@ -240,10 +240,12 @@ class ConnectionScreen(ModalScreen):
         """Get the adapter instance for a database type."""
         return get_adapter(db_type.value)
 
-    def _get_field_groups_for_type(self, db_type: DatabaseType) -> list[FieldGroup]:
+    def _get_field_groups_for_type(self, db_type: DatabaseType, tab: str | None = None) -> list[FieldGroup]:
         """Get field groups for a database type from the schema registry."""
         schema = get_connection_schema(db_type.value)
         definitions = schema_to_field_definitions(schema)
+        if tab:
+            definitions = [d for d in definitions if d.tab == tab]
         return [FieldGroup(name="connection", fields=definitions)]
 
     def _get_field_value(self, field_name: str) -> str:
@@ -404,15 +406,14 @@ class ConnectionScreen(ModalScreen):
                 pass
 
     def _update_ssh_tab_enabled(self, db_type: DatabaseType) -> None:
-        """Enable/disable the SSH tab based on database type (disabled for file-based DBs)."""
+        """Enable/disable the SSH tab based on database type."""
         try:
             tabs = self.query_one("#connection-tabs", TabbedContent)
             ssh_pane = self.query_one("#tab-ssh", TabPane)
         except Exception:
             return
 
-        # SSH doesn't make sense for file-based databases
-        enabled = db_type not in (DatabaseType.SQLITE, DatabaseType.DUCKDB)
+        enabled = supports_ssh(db_type.value)
 
         ssh_pane.disabled = not enabled
         try:
@@ -427,52 +428,6 @@ class ConnectionScreen(ModalScreen):
                     tabs.active = "tab-general"
             except Exception:
                 pass
-
-    def _update_ssh_field_visibility(self) -> None:
-        """Update visibility of SSH fields based on SSH enabled state and auth type."""
-        try:
-            ssh_enabled_select = self.query_one("#field-ssh_enabled", Select)
-            ssh_enabled = str(ssh_enabled_select.value) == "enabled"
-        except Exception:
-            ssh_enabled = False
-
-        try:
-            ssh_auth_select = self.query_one("#field-ssh_auth_type", Select)
-            ssh_auth_type = str(ssh_auth_select.value)
-        except Exception:
-            ssh_auth_type = "key"
-
-        # Fields that show when SSH is enabled
-        ssh_fields = ["ssh_host", "ssh_port", "ssh_username", "ssh_auth_type"]
-        for field in ssh_fields:
-            try:
-                container = self.query_one(f"#container-{field}", Container)
-                if ssh_enabled:
-                    container.remove_class("hidden")
-                else:
-                    container.add_class("hidden")
-            except Exception:
-                pass
-
-        # Key path shows when SSH enabled and auth is key
-        try:
-            key_container = self.query_one("#container-ssh_key_path", Container)
-            if ssh_enabled and ssh_auth_type == "key":
-                key_container.remove_class("hidden")
-            else:
-                key_container.add_class("hidden")
-        except Exception:
-            pass
-
-        # Password shows when SSH enabled and auth is password
-        try:
-            password_container = self.query_one("#container-ssh_password", Container)
-            if ssh_enabled and ssh_auth_type == "password":
-                password_container.remove_class("hidden")
-            else:
-                password_container.add_class("hidden")
-        except Exception:
-            pass
 
     def compose(self) -> ComposeResult:
         title = "Edit Connection" if self.editing else "New Connection"
@@ -511,7 +466,7 @@ class ConnectionScreen(ModalScreen):
                         )
 
                     with Container(id="dynamic-fields-general"):
-                        field_groups = self._get_field_groups_for_type(db_type)
+                        field_groups = self._get_field_groups_for_type(db_type, tab="general")
                         general_groups, _advanced_groups = self._split_groups_by_advanced(
                             field_groups
                         )
@@ -520,7 +475,7 @@ class ConnectionScreen(ModalScreen):
 
                 with TabPane("Advanced", id="tab-advanced"):
                     with Container(id="dynamic-fields-advanced"):
-                        field_groups = self._get_field_groups_for_type(db_type)
+                        field_groups = self._get_field_groups_for_type(db_type, tab="general")
                         _general_groups, advanced_groups = self._split_groups_by_advanced(
                             field_groups
                         )
@@ -528,96 +483,10 @@ class ConnectionScreen(ModalScreen):
                             yield from self._create_field_group(group)
 
                 with TabPane("SSH", id="tab-ssh"):
-                    ssh_enabled_container = Container(
-                        id="container-ssh_enabled", classes="field-container"
-                    )
-                    ssh_enabled_container.border_title = "Tunnel"
-                    with ssh_enabled_container:
-                        yield Select(
-                            options=[("Disabled", "disabled"), ("Enabled", "enabled")],
-                            value="enabled" if (self.config and self.config.ssh_enabled) else "disabled",
-                            allow_blank=False,
-                            compact=True,
-                            id="field-ssh_enabled",
-                        )
-
-                    ssh_host_container = Container(
-                        id="container-ssh_host",
-                        classes="field-container" + ("" if (self.config and self.config.ssh_enabled) else " hidden"),
-                    )
-                    ssh_host_container.border_title = "Host"
-                    with ssh_host_container:
-                        yield Input(
-                            value=self.config.ssh_host if self.config else "",
-                            placeholder="bastion.example.com",
-                            id="field-ssh_host",
-                        )
-                        yield Static("", id="error-ssh_host", classes="error-text hidden")
-
-                    ssh_port_container = Container(
-                        id="container-ssh_port",
-                        classes="field-container" + ("" if (self.config and self.config.ssh_enabled) else " hidden"),
-                    )
-                    ssh_port_container.border_title = "Port"
-                    with ssh_port_container:
-                        yield Input(
-                            value=self.config.ssh_port if self.config else "22",
-                            placeholder="22",
-                            id="field-ssh_port",
-                        )
-
-                    ssh_username_container = Container(
-                        id="container-ssh_username",
-                        classes="field-container" + ("" if (self.config and self.config.ssh_enabled) else " hidden"),
-                    )
-                    ssh_username_container.border_title = "Username"
-                    with ssh_username_container:
-                        yield Input(
-                            value=self.config.ssh_username if self.config else "",
-                            placeholder="ubuntu",
-                            id="field-ssh_username",
-                        )
-                        yield Static("", id="error-ssh_username", classes="error-text hidden")
-
-                    ssh_auth_container = Container(
-                        id="container-ssh_auth_type",
-                        classes="field-container" + ("" if (self.config and self.config.ssh_enabled) else " hidden"),
-                    )
-                    ssh_auth_container.border_title = "Auth"
-                    with ssh_auth_container:
-                        yield Select(
-                            options=[("Key File", "key"), ("Password", "password")],
-                            value=self.config.ssh_auth_type if self.config else "key",
-                            allow_blank=False,
-                            compact=True,
-                            id="field-ssh_auth_type",
-                        )
-
-                    ssh_key_container = Container(
-                        id="container-ssh_key_path",
-                        classes="field-container" + ("" if (self.config and self.config.ssh_enabled and self.config.ssh_auth_type == "key") else " hidden"),
-                    )
-                    ssh_key_container.border_title = "Key Path"
-                    with ssh_key_container:
-                        yield Input(
-                            value=self.config.ssh_key_path if self.config else "~/.ssh/id_rsa",
-                            placeholder="~/.ssh/id_rsa",
-                            id="field-ssh_key_path",
-                        )
-                        yield Static("", id="error-ssh_key_path", classes="error-text hidden")
-
-                    ssh_password_container = Container(
-                        id="container-ssh_password",
-                        classes="field-container" + ("" if (self.config and self.config.ssh_enabled and self.config.ssh_auth_type == "password") else " hidden"),
-                    )
-                    ssh_password_container.border_title = "Password"
-                    with ssh_password_container:
-                        yield Input(
-                            value=self.config.ssh_password if self.config else "",
-                            placeholder="",
-                            password=True,
-                            id="field-ssh_password",
-                        )
+                    with Container(id="dynamic-fields-ssh"):
+                        ssh_groups = self._get_field_groups_for_type(db_type, tab="ssh")
+                        for group in ssh_groups:
+                            yield from self._create_field_group(group)
 
             yield Static("", id="test-status")
             yield TextArea("", id="test-error", read_only=True, classes="hidden")
@@ -629,11 +498,10 @@ class ConnectionScreen(ModalScreen):
         self._set_initial_select_values()
         self._update_field_visibility()
         self._validate_name_unique()
-        field_groups = self._get_field_groups_for_type(self._current_db_type)
+        field_groups = self._get_field_groups_for_type(self._current_db_type, tab="general")
         _general, advanced = self._split_groups_by_advanced(field_groups)
         self._set_advanced_tab_enabled(bool(advanced))
         self._update_ssh_tab_enabled(self._current_db_type)
-        self._update_ssh_field_visibility()
 
     def on_descendant_focus(self, event) -> None:
         focused = self.focused
@@ -675,10 +543,8 @@ class ConnectionScreen(ModalScreen):
                 if not field_def:
                     continue
 
-                # Get the value from config or default
                 value = self._get_field_value(name) or field_def.default
 
-                # Find the index of this value in options
                 for i, opt in enumerate(field_def.options):
                     if opt.value == value:
                         widget.highlighted = i
@@ -698,10 +564,12 @@ class ConnectionScreen(ModalScreen):
 
         general_container = self.query_one("#dynamic-fields-general", Container)
         advanced_container = self.query_one("#dynamic-fields-advanced", Container)
+        ssh_container = self.query_one("#dynamic-fields-ssh", Container)
         general_container.remove_children()
         advanced_container.remove_children()
+        ssh_container.remove_children()
 
-        field_groups = self._get_field_groups_for_type(db_type)
+        field_groups = self._get_field_groups_for_type(db_type, tab="general")
         general_groups, advanced_groups = self._split_groups_by_advanced(
             field_groups
         )
@@ -713,11 +581,15 @@ class ConnectionScreen(ModalScreen):
             for widget in self._create_field_group_widgets(group):
                 advanced_container.mount(widget)
 
+        ssh_groups = self._get_field_groups_for_type(db_type, tab="ssh")
+        for group in ssh_groups:
+            for widget in self._create_field_group_widgets(group):
+                ssh_container.mount(widget)
+
     def _create_field_group_widgets(self, group: FieldGroup) -> list:
         """Create widget instances for a field group (for mounting)."""
         widgets = []
 
-        # Group fields by row_group
         row_groups: dict[str | None, list[FieldDefinition]] = {}
         for field_def in group.fields:
             row_key = field_def.row_group
@@ -729,12 +601,10 @@ class ConnectionScreen(ModalScreen):
 
         for row_key, fields in row_groups.items():
             if row_key is None:
-                # Single fields
                 for field_def in fields:
                     for w in self._create_field_widget_instances(field_def, group.name):
                         group_container.compose_add_child(w)
             else:
-                # Row of fields
                 row = Horizontal(classes="field-row")
                 for field_def in fields:
                     width_class = "field-flex" if field_def.width == "flex" else "field-fixed"
@@ -753,7 +623,6 @@ class ConnectionScreen(ModalScreen):
         field_id = f"field-{field_def.name}"
         container_id = f"container-{field_def.name}"
 
-        # Determine initial visibility
         initial_visible = True
         if field_def.visible_when:
             initial_values = self._get_current_form_values()
@@ -819,14 +688,6 @@ class ConnectionScreen(ModalScreen):
                 self._update_ssh_tab_enabled(db_type)
             return
 
-        if event.select.id == "field-ssh_enabled":
-            self._update_ssh_field_visibility()
-            return
-
-        if event.select.id == "field-ssh_auth_type":
-            self._update_ssh_field_visibility()
-            return
-
         if event.select.id and str(event.select.id).startswith("field-"):
             self._update_field_visibility()
 
@@ -854,22 +715,21 @@ class ConnectionScreen(ModalScreen):
                 container.add_class("hidden")
 
     def _get_focusable_fields(self) -> list:
-        """Get list of focusable fields in order, based on active tab."""
-        from textual.widgets import Tabs
+        """Get list of focusable fields in order, based on active tab.
 
+        Note: Tab bar is intentionally excluded from focusable fields.
+        Users can switch tabs by clicking or using keyboard shortcuts,
+        but Tab key should cycle through form fields only.
+        """
         fields = []
 
-        # Check which tab is active
         try:
             tabs_widget = self.query_one("#connection-tabs", TabbedContent)
-            tab_bar = tabs_widget.query_one(Tabs)
-            fields.append(tab_bar)
             active_tab = tabs_widget.active
         except Exception:
             active_tab = "tab-general"
 
         if active_tab == "tab-ssh":
-            # Add SSH fields if visible
             ssh_fields = [
                 "ssh_enabled", "ssh_host", "ssh_port", "ssh_username",
                 "ssh_auth_type", "ssh_key_path", "ssh_password"
@@ -889,8 +749,12 @@ class ConnectionScreen(ModalScreen):
                 self.query_one("#conn-name", Input),
                 self.query_one("#dbtype-select", Select),
             ])
-            # Add all visible general field widgets
             for name, widget in self._field_widgets.items():
+                if name.startswith("ssh_"):
+                    continue
+                field_def = self._field_definitions.get(name)
+                if field_def and field_def.advanced:
+                    continue
                 try:
                     container = self.query_one(f"#container-{name}", Container)
                     if "hidden" not in container.classes:
@@ -899,7 +763,6 @@ class ConnectionScreen(ModalScreen):
                     pass
 
         elif active_tab == "tab-advanced":
-            # Add all visible advanced field widgets
             for name, widget in self._field_widgets.items():
                 field_def = self._field_definitions.get(name)
                 if field_def and field_def.advanced:
@@ -933,7 +796,7 @@ class ConnectionScreen(ModalScreen):
             pass
         try:
             error = self.query_one(f"#error-{name}", Static)
-            # Keep text minimal; border color is the primary indicator.
+
             error.update("" if message == "Required." else message)
             if message == "Required.":
                 error.add_class("hidden")
@@ -1046,8 +909,16 @@ class ConnectionScreen(ModalScreen):
                 return
 
     def action_next_field(self) -> None:
+        from textual.widgets import Tabs
+
         fields = self._get_focusable_fields()
         focused = self.focused
+
+        if isinstance(focused, Tabs):
+            if fields:
+                fields[0].focus()
+            return
+
         if focused in fields:
             idx = fields.index(focused)
             next_idx = (idx + 1) % len(fields)
@@ -1056,12 +927,25 @@ class ConnectionScreen(ModalScreen):
             fields[0].focus()
 
     def action_prev_field(self) -> None:
+        from textual.widgets import Tabs
+
         fields = self._get_focusable_fields()
         focused = self.focused
+
+        if isinstance(focused, Tabs):
+            return
+
         if focused in fields:
             idx = fields.index(focused)
-            prev_idx = (idx - 1) % len(fields)
-            fields[prev_idx].focus()
+            if idx == 0:
+                try:
+                    tabs_widget = self.query_one("#connection-tabs", TabbedContent)
+                    tab_bar = tabs_widget.query_one(Tabs)
+                    tab_bar.focus()
+                except Exception:
+                    pass
+            else:
+                fields[idx - 1].focus()
         elif fields:
             fields[-1].focus()
 
@@ -1095,10 +979,9 @@ class ConnectionScreen(ModalScreen):
                     except Exception:
                         pass
         elif active_tab == "tab-ssh":
-            try:
-                self.query_one("#field-ssh_enabled", Select).focus()
-            except Exception:
-                pass
+            ssh_widget = self._field_widgets.get("ssh_enabled")
+            if ssh_widget:
+                ssh_widget.focus()
 
     def _get_config(self) -> ConnectionConfig | None:
         """Build a ConnectionConfig from the current form values."""
@@ -1112,52 +995,12 @@ class ConnectionScreen(ModalScreen):
         except Exception:
             db_type = DatabaseType.MSSQL
 
-        # Collect all field values
         values = self._get_current_form_values()
-
-        # Add SSH fields to values (for server-based databases)
-        if db_type not in (DatabaseType.SQLITE, DatabaseType.DUCKDB):
-            try:
-                ssh_enabled_select = self.query_one("#field-ssh_enabled", Select)
-                values["ssh_enabled"] = str(ssh_enabled_select.value)
-            except Exception:
-                values["ssh_enabled"] = "disabled"
-
-            try:
-                values["ssh_host"] = self.query_one("#field-ssh_host", Input).value
-            except Exception:
-                values["ssh_host"] = ""
-
-            try:
-                values["ssh_port"] = self.query_one("#field-ssh_port", Input).value or "22"
-            except Exception:
-                values["ssh_port"] = "22"
-
-            try:
-                values["ssh_username"] = self.query_one("#field-ssh_username", Input).value
-            except Exception:
-                values["ssh_username"] = ""
-
-            try:
-                ssh_auth_select = self.query_one("#field-ssh_auth_type", Select)
-                values["ssh_auth_type"] = str(ssh_auth_select.value)
-            except Exception:
-                values["ssh_auth_type"] = "key"
-
-            try:
-                values["ssh_key_path"] = self.query_one("#field-ssh_key_path", Input).value
-            except Exception:
-                values["ssh_key_path"] = ""
-
-            try:
-                values["ssh_password"] = self.query_one("#field-ssh_password", Input).value
-            except Exception:
-                values["ssh_password"] = ""
 
         # Name suggestion
         if not name:
             suggestion = ""
-            if db_type in (DatabaseType.SQLITE, DatabaseType.DUCKDB):
+            if is_file_based(db_type.value):
                 fp = values.get("file_path", "").strip()
                 suggestion = fp.split("/")[-1] if fp else db_type.value
             else:
@@ -1205,12 +1048,11 @@ class ConnectionScreen(ModalScreen):
             if not field_name.startswith("ssh_"):
                 config_kwargs[field_name] = value
 
-        if db_type == DatabaseType.MSSQL:
+        if has_advanced_auth(db_type.value):
             auth_type = values.get("auth_type", "sql")
             config_kwargs["trusted_connection"] = (auth_type == "windows")
 
-        # Add SSH fields (only for server-based databases)
-        if db_type not in (DatabaseType.SQLITE, DatabaseType.DUCKDB):
+        if supports_ssh(db_type.value):
             config_kwargs["ssh_enabled"] = values.get("ssh_enabled") == "enabled"
             config_kwargs["ssh_host"] = values.get("ssh_host", "")
             config_kwargs["ssh_port"] = values.get("ssh_port", "22")
@@ -1246,14 +1088,23 @@ class ConnectionScreen(ModalScreen):
         self._last_test_ok = None
         self._last_test_error = ""
         tunnel = None
-        try:
-            tunnel, host, port = create_ssh_tunnel(config)
-            if tunnel:
-                connect_config = replace(config, server=host, port=str(port))
-            else:
-                connect_config = config
 
-            adapter = get_adapter(config.db_type)
+        # Check if we're in mock mode
+        mock_profile = getattr(self.app, "_mock_profile", None)
+
+        try:
+            if mock_profile:
+                # Use mock adapter and skip SSH tunnel in mock mode
+                adapter = mock_profile.get_adapter(config.db_type)
+                connect_config = config
+            else:
+                tunnel, host, port = create_ssh_tunnel(config)
+                if tunnel:
+                    connect_config = replace(config, server=host, port=str(port))
+                else:
+                    connect_config = config
+                adapter = get_adapter(config.db_type)
+
             conn = adapter.connect(connect_config)
             conn.close()
 

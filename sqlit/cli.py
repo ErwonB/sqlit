@@ -15,6 +15,14 @@ def main() -> int:
         prog="sqlit",
         description="A terminal UI for SQL Server, PostgreSQL, MySQL, and SQLite databases",
     )
+
+    # Global options for TUI mode
+    parser.add_argument(
+        "--mock",
+        metavar="PROFILE",
+        help="Run with mock data (profiles: sqlite-demo, empty, multi-db)",
+    )
+
     subparsers = parser.add_subparsers(dest="command", help="Available commands")
 
     # Connection commands
@@ -118,7 +126,17 @@ def main() -> int:
     if args.command is None:
         from .app import SSMSTUI
 
-        app = SSMSTUI()
+        mock_profile = None
+        if args.mock:
+            from .mocks import get_mock_profile, list_mock_profiles
+
+            mock_profile = get_mock_profile(args.mock)
+            if mock_profile is None:
+                print(f"Unknown mock profile: {args.mock}")
+                print(f"Available profiles: {', '.join(list_mock_profiles())}")
+                return 1
+
+        app = SSMSTUI(mock_profile=mock_profile)
         app.run()
         return 0
 

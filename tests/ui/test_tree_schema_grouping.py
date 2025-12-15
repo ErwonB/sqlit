@@ -6,6 +6,7 @@ import pytest
 from rich.markup import escape as escape_markup
 
 from sqlit.ui.mixins.tree import TreeMixin
+from sqlit.ui.tree_nodes import SchemaNode, TableNode, ViewNode
 
 
 class MockSession:
@@ -79,10 +80,10 @@ class TestSchemaGrouping:
 
         # Should have 3 direct children (no schema folders)
         assert len(parent.children) == 3
-        assert all(child.data[0] == "table" for child in parent.children)
+        assert all(isinstance(child.data, TableNode) for child in parent.children)
 
         # Check table names
-        table_names = [child.data[3] for child in parent.children]
+        table_names = [child.data.name for child in parent.children]
         assert "users" in table_names
         assert "posts" in table_names
         assert "comments" in table_names
@@ -114,25 +115,25 @@ class TestSchemaGrouping:
 
         # First should be public (default schema first)
         public_folder = parent.children[0]
-        assert public_folder.data[0] == "schema"
-        assert public_folder.data[2] == "public"
+        assert isinstance(public_folder.data, SchemaNode)
+        assert public_folder.data.schema == "public"
         assert public_folder.allow_expand is True
         assert len(public_folder.children) == 2
 
         # Second should be realtime
         realtime_folder = parent.children[1]
-        assert realtime_folder.data[0] == "schema"
-        assert realtime_folder.data[2] == "realtime"
+        assert isinstance(realtime_folder.data, SchemaNode)
+        assert realtime_folder.data.schema == "realtime"
         assert realtime_folder.allow_expand is True
         assert len(realtime_folder.children) == 2
 
         # Check tables in public
-        public_tables = [child.data[3] for child in public_folder.children]
+        public_tables = [child.data.name for child in public_folder.children]
         assert "users" in public_tables
         assert "posts" in public_tables
 
         # Check tables in realtime
-        realtime_tables = [child.data[3] for child in realtime_folder.children]
+        realtime_tables = [child.data.name for child in realtime_folder.children]
         assert "messages" in realtime_tables
         assert "subscriptions" in realtime_tables
 
@@ -160,7 +161,7 @@ class TestSchemaGrouping:
         assert len(parent.children) == 3
 
         # Order: public (default), alpha, zebra
-        schemas = [child.data[2] for child in parent.children]
+        schemas = [child.data.schema for child in parent.children]
         assert schemas == ["public", "alpha", "zebra"]
 
     def test_empty_schema_uses_default(self):
@@ -187,7 +188,7 @@ class TestSchemaGrouping:
 
         # First folder should show "main" even though schema was empty
         first_folder = parent.children[0]
-        assert first_folder.data[2] == "main"
+        assert first_folder.data.schema == "main"
 
     def test_views_also_grouped(self):
         """Views should also be grouped by schema."""
@@ -215,7 +216,7 @@ class TestSchemaGrouping:
         # Check view nodes have correct type
         for schema_folder in parent.children:
             for child in schema_folder.children:
-                assert child.data[0] == "view"
+                assert isinstance(child.data, ViewNode)
 
     def test_table_nodes_are_expandable(self):
         """Table nodes should be expandable (for columns)."""
@@ -256,9 +257,12 @@ class TestSchemaGrouping:
         items = [("table", s, t) for s, t in adapter.get_tables(None)]
         mixin._add_schema_grouped_items(parent, "mydb", "tables", items, "public")
 
-        # Check schema node data: ("schema", db_name, schema_name, folder_type)
+        # Check schema node data
         realtime_folder = parent.children[1]
-        assert realtime_folder.data == ("schema", "mydb", "realtime", "tables")
+        assert isinstance(realtime_folder.data, SchemaNode)
+        assert realtime_folder.data.database == "mydb"
+        assert realtime_folder.data.schema == "realtime"
+        assert realtime_folder.data.folder_type == "tables"
 
     def test_table_node_data_structure(self):
         """Table nodes should have correct data structure."""
@@ -280,8 +284,11 @@ class TestSchemaGrouping:
         schema_folder = parent.children[0]
         table_node = schema_folder.children[0]
 
-        # Check table node data: ("table", db_name, schema_name, table_name)
-        assert table_node.data == ("table", "mydb", "realtime", "messages")
+        # Check table node data
+        assert isinstance(table_node.data, TableNode)
+        assert table_node.data.database == "mydb"
+        assert table_node.data.schema == "realtime"
+        assert table_node.data.name == "messages"
 
     def test_special_characters_in_schema_name(self):
         """Schema names with special characters should be escaped properly."""

@@ -28,6 +28,13 @@ from .stores.history import (
 from .stores.settings import load_settings, save_settings
 
 
+# Import schema capabilities - use function to avoid circular imports
+def _is_file_based(db_type: str) -> bool:
+    from .db.schema import is_file_based
+
+    return is_file_based(db_type)
+
+
 class DatabaseType(Enum):
     """Supported database types."""
 
@@ -184,7 +191,7 @@ class ConnectionConfig:
 
     def get_display_info(self) -> str:
         """Get a display string for the connection."""
-        if self.db_type in ("sqlite", "duckdb"):
+        if _is_file_based(self.db_type):
             return self.file_path or self.name
 
         if self.db_type == "supabase":

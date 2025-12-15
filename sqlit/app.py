@@ -23,10 +23,9 @@ from .config import (
     save_settings,
 )
 from .db import DatabaseAdapter
+from .mocks import MockProfile
 from .state_machine import (
     get_leader_bindings,
-    get_leader_binding_actions,
-    check_leader_action_guard,
     UIStateMachine,
 )
 from .ui.mixins import (
@@ -215,8 +214,9 @@ class SSMSTUI(
         Binding("ctrl+c", "cancel_operation", "Cancel", show=False),
     ]
 
-    def __init__(self):
+    def __init__(self, mock_profile: MockProfile | None = None):
         super().__init__()
+        self._mock_profile = mock_profile
         self.connections: list[ConnectionConfig] = []
         self.current_connection: Any | None = None
         self.current_config: ConnectionConfig | None = None
@@ -263,6 +263,30 @@ class SSMSTUI(
         self._table_metadata: dict = {}
         self._columns_loading: set[str] = set()
         self._state_machine = UIStateMachine()
+
+        if mock_profile:
+            self._session_factory = self._create_mock_session_factory(mock_profile)
+
+    def _create_mock_session_factory(self, profile: MockProfile):
+        """Create a session factory that uses mock adapters."""
+        from .services import ConnectionSession
+
+        def mock_adapter_factory(db_type: str):
+            """Return mock adapter for the given db type."""
+            return profile.get_adapter(db_type)
+
+        def mock_tunnel_factory(config):
+            """Return no tunnel for mock connections."""
+            return None, config.server, int(config.port or "0")
+
+        def factory(config):
+            return ConnectionSession.create(
+                config,
+                adapter_factory=mock_adapter_factory,
+                tunnel_factory=mock_tunnel_factory,
+            )
+
+        return factory
 
     @property
     def object_tree(self) -> Tree:
@@ -314,16 +338,11 @@ class SSMSTUI(
         return result
 
     def check_action(self, action: str, parameters: tuple) -> bool | None:
-        """Check if an action is allowed in the current state."""
-        if action in get_leader_binding_actions():
-            if not getattr(self, "_leader_pending", False):
-                return False
-            if hasattr(self, "_leader_timer") and self._leader_timer is not None:
-                self._leader_timer.stop()
-                self._leader_timer = None
-            self._leader_pending = False
-            return check_leader_action_guard(self, action)
+        """Check if an action is allowed in the current state.
 
+        This method is pure - it only checks, never mutates state.
+        State transitions happen in the action methods themselves.
+        """
         return self._state_machine.check_action(self, action)
 
     def compose(self) -> ComposeResult:
@@ -363,7 +382,7 @@ class SSMSTUI(
 
     def on_mount(self) -> None:
         """Initialize the app."""
-        if not PYODBC_AVAILABLE:
+        if not PYODBC_AVAILABLE and not self._mock_profile:
             self.notify(
                 "pyodbc not installed. Run: pip install pyodbc",
                 severity="warning",
@@ -382,7 +401,11 @@ class SSMSTUI(
         settings = load_settings()
         self._expanded_paths = set(settings.get("expanded_nodes", []))
 
-        self.connections = load_connections()
+        if self._mock_profile:
+            self.connections = self._mock_profile.connections.copy()
+        else:
+            self.connections = load_connections()
+
         self.refresh_tree()
         self._update_footer_bindings()
 
@@ -392,8 +415,8 @@ class SSMSTUI(
             self.object_tree.cursor_line = 0
         self._update_section_labels()
 
-        # Check for ODBC drivers
-        self._check_drivers()
+        if not self._mock_profile:
+            self._check_drivers()
 
     def _check_drivers(self) -> None:
         """Check if ODBC drivers are installed and show setup if needed."""

@@ -385,7 +385,12 @@ class UINavigationMixin:
             self._leader_timer = None
 
     def _execute_leader_command(self, action: str) -> None:
-        """Execute a leader command by action name."""
+        """Execute a leader command by action name.
+
+        Also clears leader pending state - this is the single place
+        where leader state transitions happen (except timeout → menu).
+        """
+        self._cancel_leader_pending()
         if action == "quit":
             self.exit()
             return

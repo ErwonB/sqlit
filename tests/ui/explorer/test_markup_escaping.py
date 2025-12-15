@@ -13,6 +13,7 @@ from rich.markup import escape as escape_markup
 
 from sqlit.db.adapters.base import ColumnInfo
 from sqlit.ui.mixins.tree import TreeMixin
+from sqlit.ui.tree_nodes import SchemaNode, TableNode
 
 
 @dataclass
@@ -280,23 +281,23 @@ class TestExpandingTablesWithMultipleSchemas:
         assert len(parent.children) == 3
 
         # Check schema order: public first (default), then alphabetically
-        schema_names = [child.data[2] for child in parent.children]
+        schema_names = [child.data.schema for child in parent.children]
         assert schema_names == ["public", "auth", "realtime"]
 
         # Check each schema folder has correct tables
         public_folder = parent.children[0]
         assert len(public_folder.children) == 2
-        public_tables = [c.data[3] for c in public_folder.children]
+        public_tables = [c.data.name for c in public_folder.children]
         assert "users" in public_tables
         assert "posts" in public_tables
 
         auth_folder = parent.children[1]
         assert len(auth_folder.children) == 1
-        assert auth_folder.children[0].data[3] == "sessions"
+        assert auth_folder.children[0].data.name == "sessions"
 
         realtime_folder = parent.children[2]
         assert len(realtime_folder.children) == 2
-        realtime_tables = [c.data[3] for c in realtime_folder.children]
+        realtime_tables = [c.data.name for c in realtime_folder.children]
         assert "messages" in realtime_tables
         assert "subscriptions" in realtime_tables
 
@@ -317,7 +318,7 @@ class TestExpandingTablesWithMultipleSchemas:
 
         # Tables should be direct children, not nested under schema folder
         assert len(parent.children) == 2
-        assert all(child.data[0] == "table" for child in parent.children)
+        assert all(isinstance(child.data, TableNode) for child in parent.children)
 
     def test_expand_views_folder_groups_by_schema(self):
         """Expanding Views folder should also group by schema."""
@@ -336,8 +337,8 @@ class TestExpandingTablesWithMultipleSchemas:
 
         # Should have 2 schema folders
         assert len(parent.children) == 2
-        assert parent.children[0].data[0] == "schema"
-        assert parent.children[1].data[0] == "schema"
+        assert isinstance(parent.children[0].data, SchemaNode)
+        assert isinstance(parent.children[1].data, SchemaNode)
 
     def test_schema_folders_are_expandable(self):
         """Schema folder nodes should be expandable."""

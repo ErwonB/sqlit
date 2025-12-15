@@ -16,6 +16,7 @@ from .config import (
     load_connections,
     save_connections,
 )
+from .db.schema import get_default_port, has_advanced_auth, is_file_based
 from .services import ConnectionSession, QueryResult, QueryService
 
 if TYPE_CHECKING:
@@ -33,19 +34,18 @@ def cmd_connection_list(args) -> int:
     print("-" * 95)
     for conn in connections:
         db_type_label = DATABASE_TYPE_LABELS.get(conn.get_db_type(), conn.db_type)
-        # File-based databases (SQLite, DuckDB)
-        if conn.db_type in ("sqlite", "duckdb"):
+        if is_file_based(conn.db_type):
             conn_info = conn.file_path[:38] + ".." if len(conn.file_path) > 40 else conn.file_path
             auth_label = "N/A"
-        # Server-based databases with simple auth
-        elif conn.db_type in ("postgresql", "mysql", "mariadb", "oracle", "cockroachdb"):
-            conn_info = f"{conn.server}@{conn.database}" if conn.database else conn.server
-            conn_info = conn_info[:38] + ".." if len(conn_info) > 40 else conn_info
-            auth_label = f"User: {conn.username}" if conn.username else "N/A"
-        else:  # mssql (SQL Server)
+        elif has_advanced_auth(conn.db_type):
             conn_info = f"{conn.server}@{conn.database}" if conn.database else conn.server
             conn_info = conn_info[:38] + ".." if len(conn_info) > 40 else conn_info
             auth_label = AUTH_TYPE_LABELS.get(conn.get_auth_type(), conn.auth_type)
+        else:
+            # Server-based databases with simple auth
+            conn_info = f"{conn.server}@{conn.database}" if conn.database else conn.server
+            conn_info = conn_info[:38] + ".." if len(conn_info) > 40 else conn_info
+            auth_label = f"User: {conn.username}" if conn.username else "N/A"
         print(
             f"{conn.name:<20} {db_type_label:<10} {conn_info:<40} {auth_label:<25}"
         )
@@ -69,8 +69,7 @@ def cmd_connection_create(args) -> int:
         print(f"Error: Invalid database type '{db_type}'. Valid types: {valid_types}")
         return 1
 
-    # File-based databases (SQLite, DuckDB)
-    if db_type in ("sqlite", "duckdb"):
+    if is_file_based(db_type):
         file_path = getattr(args, "file_path", None)
         if not file_path:
             print(f"Error: --file-path is required for {db_type.upper()} connections.")
@@ -81,38 +80,8 @@ def cmd_connection_create(args) -> int:
             db_type=db_type,
             file_path=file_path,
         )
-    # Server-based databases with simple auth (PostgreSQL, MySQL, MariaDB, Oracle, CockroachDB)
-    elif db_type in ("postgresql", "mysql", "mariadb", "oracle", "cockroachdb"):
-        if not args.server:
-            db_label = DATABASE_TYPE_LABELS.get(DatabaseType(db_type), db_type.upper())
-            print(f"Error: --server is required for {db_label} connections.")
-            return 1
-
-        default_ports = {
-            "postgresql": "5432",
-            "mysql": "3306",
-            "mariadb": "3306",
-            "oracle": "1521",
-            "cockroachdb": "26257",
-        }
-        config = ConnectionConfig(
-            name=args.name,
-            db_type=db_type,
-            server=args.server,
-            port=args.port or default_ports.get(db_type, "1433"),
-            database=args.database or "",
-            username=args.username or "",
-            password=args.password or "",
-            ssh_enabled=getattr(args, "ssh_enabled", False) or False,
-            ssh_host=getattr(args, "ssh_host", "") or "",
-            ssh_port=getattr(args, "ssh_port", "22") or "22",
-            ssh_username=getattr(args, "ssh_username", "") or "",
-            ssh_auth_type=getattr(args, "ssh_auth_type", "key") or "key",
-            ssh_key_path=getattr(args, "ssh_key_path", "") or "",
-            ssh_password=getattr(args, "ssh_password", "") or "",
-        )
-    else:
-        # SQL Server connection (mssql)
+    elif has_advanced_auth(db_type):
+        # SQL Server connection (has Windows/Azure AD auth)
         if not args.server:
             print("Error: --server is required for SQL Server connections.")
             return 1
@@ -129,12 +98,35 @@ def cmd_connection_create(args) -> int:
             name=args.name,
             db_type=db_type,
             server=args.server,
-            port=args.port or "1433",
+            port=args.port or get_default_port(db_type),
             database=args.database or "",
             username=args.username or "",
             password=args.password or "",
             auth_type=auth_type.value,
             trusted_connection=(auth_type == AuthType.WINDOWS),
+            ssh_enabled=getattr(args, "ssh_enabled", False) or False,
+            ssh_host=getattr(args, "ssh_host", "") or "",
+            ssh_port=getattr(args, "ssh_port", "22") or "22",
+            ssh_username=getattr(args, "ssh_username", "") or "",
+            ssh_auth_type=getattr(args, "ssh_auth_type", "key") or "key",
+            ssh_key_path=getattr(args, "ssh_key_path", "") or "",
+            ssh_password=getattr(args, "ssh_password", "") or "",
+        )
+    else:
+        # Server-based databases with simple auth
+        if not args.server:
+            db_label = DATABASE_TYPE_LABELS.get(DatabaseType(db_type), db_type.upper())
+            print(f"Error: --server is required for {db_label} connections.")
+            return 1
+
+        config = ConnectionConfig(
+            name=args.name,
+            db_type=db_type,
+            server=args.server,
+            port=args.port or get_default_port(db_type),
+            database=args.database or "",
+            username=args.username or "",
+            password=args.password or "",
             ssh_enabled=getattr(args, "ssh_enabled", False) or False,
             ssh_host=getattr(args, "ssh_host", "") or "",
             ssh_port=getattr(args, "ssh_port", "22") or "22",

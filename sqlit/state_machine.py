@@ -15,6 +15,8 @@ from dataclasses import dataclass, field
 from enum import Enum, auto
 from typing import TYPE_CHECKING, Callable
 
+from .ui.tree_nodes import ConnectionNode, DatabaseNode, FolderNode, SchemaNode, TableNode, ViewNode
+
 if TYPE_CHECKING:
     from .app import SSMSTUI
 
@@ -82,22 +84,6 @@ def get_leader_commands() -> list[LeaderCommand]:
 def get_leader_binding_actions() -> set[str]:
     """Get set of leader binding action names."""
     return {cmd.binding_action for cmd in get_leader_commands()}
-
-
-def check_leader_action_guard(app: SSMSTUI, action: str) -> bool:
-    """Check if a leader action's guard allows execution.
-
-    Args:
-        app: The application instance
-        action: The leader binding action name (e.g., 'leader_quit')
-
-    Returns:
-        True if the action is allowed (guard passes or no guard), False otherwise.
-    """
-    for cmd in get_leader_commands():
-        if cmd.binding_action == action:
-            return cmd.is_allowed(app)
-    return False
 
 
 def get_leader_bindings():
@@ -472,9 +458,9 @@ class TreeOnConnectionState(State):
     def _setup_actions(self) -> None:
         def can_connect(app: SSMSTUI) -> bool:
             node = app.object_tree.cursor_node
-            if not node or not node.data or node.data[0] != "connection":
+            if not node or not isinstance(node.data, ConnectionNode):
                 return False
-            config = node.data[1]
+            config = node.data.config
             if not app.current_connection:
                 return True
             return (
@@ -485,9 +471,9 @@ class TreeOnConnectionState(State):
 
         def is_connected_to_this(app: SSMSTUI) -> bool:
             node = app.object_tree.cursor_node
-            if not node or not node.data or node.data[0] != "connection":
+            if not node or not isinstance(node.data, ConnectionNode):
                 return False
-            config = node.data[1]
+            config = node.data.config
             return (
                 app.current_connection is not None
                 and config
@@ -510,7 +496,7 @@ class TreeOnConnectionState(State):
         seen: set[str] = set()
 
         node = app.object_tree.cursor_node
-        config = node.data[1] if node and node.data else None
+        config = node.data.config if node and isinstance(node.data, ConnectionNode) else None
         is_connected = (
             app.current_connection is not None
             and config
@@ -553,7 +539,7 @@ class TreeOnConnectionState(State):
         if not app.object_tree.has_focus:
             return False
         node = app.object_tree.cursor_node
-        return node is not None and node.data is not None and node.data[0] == "connection"
+        return node is not None and isinstance(node.data, ConnectionNode)
 
 
 class TreeOnTableState(State):
@@ -591,11 +577,7 @@ class TreeOnTableState(State):
         if not app.object_tree.has_focus:
             return False
         node = app.object_tree.cursor_node
-        return (
-            node is not None
-            and node.data is not None
-            and node.data[0] in ("table", "view")
-        )
+        return node is not None and isinstance(node.data, (TableNode, ViewNode))
 
 
 class TreeOnFolderState(State):
@@ -629,11 +611,7 @@ class TreeOnFolderState(State):
         if not app.object_tree.has_focus:
             return False
         node = app.object_tree.cursor_node
-        return (
-            node is not None
-            and node.data is not None
-            and node.data[0] in ("folder", "database", "schema")
-        )
+        return node is not None and isinstance(node.data, (FolderNode, DatabaseNode, SchemaNode))
 
 
 # ============================================================

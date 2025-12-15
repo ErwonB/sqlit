@@ -6,6 +6,8 @@ from typing import TYPE_CHECKING, Any, Callable
 
 from textual.widgets import Static
 
+from ..tree_nodes import ConnectionNode
+
 if TYPE_CHECKING:
     from ...config import ConnectionConfig
     from ...services import ConnectionSession
@@ -137,13 +139,12 @@ class ConnectionMixin:
             return
 
         data = node.data
-        if data[0] != "connection":
+        if not isinstance(data, ConnectionNode):
             return
 
-        config = data[1]
         self._set_connection_screen_footer()
         self.push_screen(
-            ConnectionScreen(config, editing=True), self._wrap_connection_result
+            ConnectionScreen(data.config, editing=True), self._wrap_connection_result
         )
 
     def _set_connection_screen_footer(self) -> None:
@@ -189,10 +190,10 @@ class ConnectionMixin:
             return
 
         data = node.data
-        if data[0] != "connection":
+        if not isinstance(data, ConnectionNode):
             return
 
-        config = data[1]
+        config = data.config
 
         existing_names = {c.name for c in self.connections}
         base_name = config.name
@@ -219,10 +220,10 @@ class ConnectionMixin:
             return
 
         data = node.data
-        if data[0] != "connection":
+        if not isinstance(data, ConnectionNode):
             return
 
-        config = data[1]
+        config = data.config
 
         if self.current_config and self.current_config.name == config.name:
             self.notify("Disconnect first before deleting", severity="warning")
@@ -250,8 +251,8 @@ class ConnectionMixin:
             return
 
         data = node.data
-        if data[0] == "connection":
-            config = data[1]
+        if isinstance(data, ConnectionNode):
+            config = data.config
             if self.current_config and self.current_config.name == config.name:
                 return
             if self.current_connection:
@@ -276,7 +277,7 @@ class ConnectionMixin:
         if config:
             # Select the connection node in the tree
             for node in self.object_tree.root.children:
-                if node.data and node.data[0] == "connection" and node.data[1].name == result:
+                if isinstance(node.data, ConnectionNode) and node.data.config.name == result:
                     self.object_tree.select_node(node)
                     break
 

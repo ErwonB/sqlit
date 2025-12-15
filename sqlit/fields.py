@@ -36,6 +36,8 @@ class FieldDefinition:
     row_group: str | None = None
     # Whether the field should be hidden unless advanced mode is enabled
     advanced: bool = False
+    # Tab to place the field in ("general", "advanced", "ssh")
+    tab: str = "general"
 
 
 @dataclass
@@ -130,6 +132,7 @@ def schema_field_to_definition(schema_field: "SchemaField") -> FieldDefinition:
         width=width,
         row_group=schema_field.group,
         advanced=schema_field.advanced,
+        tab=schema_field.tab,
     )
 
 
@@ -143,78 +146,3 @@ def schema_to_field_definitions(schema: "ConnectionSchema") -> list[FieldDefinit
         List of UI-specific FieldDefinitions for Textual forms
     """
     return [schema_field_to_definition(f) for f in schema.fields]
-
-
-def schema_to_field_groups(schema: "ConnectionSchema") -> list[FieldGroup]:
-    """Convert a ConnectionSchema to FieldGroups for the connection form.
-
-    Args:
-        schema: Connection schema from db.schema
-
-    Returns:
-        List of FieldGroups for the connection form
-    """
-    from .db.schema import get_connection_schema
-
-    # Convert schema fields to definitions
-    definitions = schema_to_field_definitions(schema)
-
-    # Create the main connection group
-    groups = [FieldGroup(name="connection", fields=definitions)]
-
-    # Add SSH tunnel group if supported
-    if schema.supports_ssh:
-        ssh_fields = get_ssh_tunnel_fields()
-        groups.append(
-            FieldGroup(
-                name="ssh",
-                fields=ssh_fields,
-                visible_when=lambda v: v.get("use_ssh_tunnel") == "yes",
-            )
-        )
-
-    return groups
-
-
-def get_ssh_tunnel_fields() -> list[FieldDefinition]:
-    """Get SSH tunnel configuration fields."""
-    return [
-        FieldDefinition(
-            name="ssh_host",
-            label="SSH Host",
-            placeholder="bastion.example.com",
-            required=True,
-            row_group="ssh_host_port",
-            width="flex",
-        ),
-        FieldDefinition(
-            name="ssh_port",
-            label="SSH Port",
-            placeholder="22",
-            default="22",
-            row_group="ssh_host_port",
-            width=12,
-        ),
-        FieldDefinition(
-            name="ssh_username",
-            label="SSH Username",
-            placeholder="ssh_user",
-            required=True,
-            row_group="ssh_credentials",
-            width="flex",
-        ),
-        FieldDefinition(
-            name="ssh_password",
-            label="SSH Password",
-            field_type=FieldType.PASSWORD,
-            placeholder="(optional if using key)",
-            row_group="ssh_credentials",
-            width="flex",
-        ),
-        FieldDefinition(
-            name="ssh_key_path",
-            label="SSH Key Path",
-            field_type=FieldType.FILE,
-            placeholder="~/.ssh/id_rsa",
-        ),
-    ]

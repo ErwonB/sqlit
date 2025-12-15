@@ -6,6 +6,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from .db.schema import is_file_based
+
 if TYPE_CHECKING:
     from .fields import FieldDefinition
 
@@ -79,8 +81,8 @@ def validate_connection_form(
         if is_visible and not values.get(field_name):
             state.add_error(field_name, "Required.")
 
-    # File path validation for SQLite/DuckDB
-    if db_type in ("sqlite", "duckdb"):
+    # File path validation for file-based databases
+    if is_file_based(db_type):
         fp = values.get("file_path", "").strip()
         if not fp:
             state.add_error("file_path", "Required.")

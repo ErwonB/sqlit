@@ -41,6 +41,7 @@ class SchemaField:
     visible_when: Callable[[dict], bool] | None = None
     group: str | None = None
     advanced: bool = False
+    tab: str = "general"
 
 
 @dataclass(frozen=True)
@@ -49,6 +50,9 @@ class ConnectionSchema:
     display_name: str
     fields: tuple[SchemaField, ...]
     supports_ssh: bool = True
+    is_file_based: bool = False
+    has_advanced_auth: bool = False
+    default_port: str = ""
 
 
 # Common field templates
@@ -108,6 +112,89 @@ def _file_path_field(placeholder: str) -> SchemaField:
         placeholder=placeholder,
         required=True,
     )
+
+
+def _ssh_enabled(v: dict) -> bool:
+    return v.get("ssh_enabled") == "enabled"
+
+
+def _ssh_auth_is_key(v: dict) -> bool:
+    return _ssh_enabled(v) and v.get("ssh_auth_type") == "key"
+
+
+def _ssh_auth_is_password(v: dict) -> bool:
+    return _ssh_enabled(v) and v.get("ssh_auth_type") == "password"
+
+
+def _get_ssh_fields() -> tuple[SchemaField, ...]:
+    return (
+        SchemaField(
+            name="ssh_enabled",
+            label="Tunnel",
+            field_type=FieldType.SELECT,
+            options=(
+                SelectOption("disabled", "Disabled"),
+                SelectOption("enabled", "Enabled"),
+            ),
+            default="disabled",
+            tab="ssh",
+        ),
+        SchemaField(
+            name="ssh_host",
+            label="Host",
+            placeholder="bastion.example.com",
+            required=True,
+            visible_when=_ssh_enabled,
+            tab="ssh",
+        ),
+        SchemaField(
+            name="ssh_port",
+            label="Port",
+            placeholder="22",
+            default="22",
+            visible_when=_ssh_enabled,
+            tab="ssh",
+        ),
+        SchemaField(
+            name="ssh_username",
+            label="Username",
+            placeholder="ubuntu",
+            required=True,
+            visible_when=_ssh_enabled,
+            tab="ssh",
+        ),
+        SchemaField(
+            name="ssh_auth_type",
+            label="Auth",
+            field_type=FieldType.SELECT,
+            options=(
+                SelectOption("key", "Key File"),
+                SelectOption("password", "Password"),
+            ),
+            default="key",
+            visible_when=_ssh_enabled,
+            tab="ssh",
+        ),
+        SchemaField(
+            name="ssh_key_path",
+            label="Key Path",
+            field_type=FieldType.FILE,
+            placeholder="~/.ssh/id_rsa",
+            default="~/.ssh/id_rsa",
+            visible_when=_ssh_auth_is_key,
+            tab="ssh",
+        ),
+        SchemaField(
+            name="ssh_password",
+            label="Password",
+            field_type=FieldType.PASSWORD,
+            visible_when=_ssh_auth_is_password,
+            tab="ssh",
+        ),
+    )
+
+
+SSH_FIELDS = _get_ssh_fields()
 
 
 # Schema definitions for each database type
@@ -181,7 +268,9 @@ MSSQL_SCHEMA = ConnectionSchema(
             group="credentials",
             visible_when=lambda v: v.get("auth_type") in _MSSQL_AUTH_NEEDS_PASSWORD,
         ),
-    ),
+    ) + SSH_FIELDS,
+    has_advanced_auth=True,
+    default_port="1433",
 )
 
 POSTGRESQL_SCHEMA = ConnectionSchema(
@@ -193,7 +282,8 @@ POSTGRESQL_SCHEMA = ConnectionSchema(
         _database_field(),
         _username_field(),
         _password_field(),
-    ),
+    ) + SSH_FIELDS,
+    default_port="5432",
 )
 
 MYSQL_SCHEMA = ConnectionSchema(
@@ -205,7 +295,8 @@ MYSQL_SCHEMA = ConnectionSchema(
         _database_field(),
         _username_field(),
         _password_field(),
-    ),
+    ) + SSH_FIELDS,
+    default_port="3306",
 )
 
 MARIADB_SCHEMA = ConnectionSchema(
@@ -217,7 +308,8 @@ MARIADB_SCHEMA = ConnectionSchema(
         _database_field(),
         _username_field(),
         _password_field(),
-    ),
+    ) + SSH_FIELDS,
+    default_port="3306",
 )
 
 ORACLE_SCHEMA = ConnectionSchema(
@@ -240,7 +332,8 @@ ORACLE_SCHEMA = ConnectionSchema(
         ),
         _username_field(),
         _password_field(),
-    ),
+    ) + SSH_FIELDS,
+    default_port="1521",
 )
 
 COCKROACHDB_SCHEMA = ConnectionSchema(
@@ -252,7 +345,8 @@ COCKROACHDB_SCHEMA = ConnectionSchema(
         _database_field(),
         _username_field(),
         _password_field(),
-    ),
+    ) + SSH_FIELDS,
+    default_port="26257",
 )
 
 SQLITE_SCHEMA = ConnectionSchema(
@@ -262,6 +356,7 @@ SQLITE_SCHEMA = ConnectionSchema(
         _file_path_field("/path/to/database.db"),
     ),
     supports_ssh=False,
+    is_file_based=True,
 )
 
 DUCKDB_SCHEMA = ConnectionSchema(
@@ -271,6 +366,7 @@ DUCKDB_SCHEMA = ConnectionSchema(
         _file_path_field("/path/to/database.duckdb"),
     ),
     supports_ssh=False,
+    is_file_based=True,
 )
 
 TURSO_SCHEMA = ConnectionSchema(
@@ -389,3 +485,68 @@ def get_all_schemas() -> dict[str, ConnectionSchema]:
 def get_supported_db_types() -> list[str]:
     """Get list of supported database type identifiers."""
     return list(_SCHEMAS.keys())
+
+
+def is_file_based(db_type: str) -> bool:
+    """Check if a database type is file-based (e.g., SQLite, DuckDB).
+
+    Args:
+        db_type: Database type identifier
+
+    Returns:
+        True if the database is file-based, False otherwise
+    """
+    schema = _SCHEMAS.get(db_type)
+    return schema.is_file_based if schema else False
+
+
+def has_advanced_auth(db_type: str) -> bool:
+    """Check if a database type supports advanced authentication (e.g., SQL Server).
+
+    Args:
+        db_type: Database type identifier
+
+    Returns:
+        True if the database has advanced auth options, False otherwise
+    """
+    schema = _SCHEMAS.get(db_type)
+    return schema.has_advanced_auth if schema else False
+
+
+def supports_ssh(db_type: str) -> bool:
+    """Check if a database type supports SSH tunneling.
+
+    Args:
+        db_type: Database type identifier
+
+    Returns:
+        True if the database supports SSH tunneling, False otherwise
+    """
+    schema = _SCHEMAS.get(db_type)
+    return schema.supports_ssh if schema else False
+
+
+def get_default_port(db_type: str) -> str:
+    """Get the default port for a database type.
+
+    Args:
+        db_type: Database type identifier
+
+    Returns:
+        Default port string, or "1433" as fallback for unknown types
+    """
+    schema = _SCHEMAS.get(db_type)
+    return schema.default_port if schema and schema.default_port else "1433"
+
+
+def get_display_name(db_type: str) -> str:
+    """Get the human-readable display name for a database type.
+
+    Args:
+        db_type: Database type identifier
+
+    Returns:
+        Display name string, or the db_type itself as fallback
+    """
+    schema = _SCHEMAS.get(db_type)
+    return schema.display_name if schema else db_type

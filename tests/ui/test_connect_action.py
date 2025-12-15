@@ -8,6 +8,7 @@ import pytest
 
 from sqlit.app import SSMSTUI
 from sqlit.ui.screens import ConnectionPickerScreen
+from sqlit.ui.tree_nodes import ConnectionNode
 
 from .mocks import MockConnectionStore, MockSettingsStore, create_test_connection
 
@@ -45,9 +46,8 @@ class TestConnectAction:
 
                 cursor_node = app.object_tree.cursor_node
                 assert cursor_node is not None
-                assert cursor_node.data is not None
-                assert cursor_node.data[0] == "connection"
-                assert cursor_node.data[1].name == "AppleDatabase"
+                assert isinstance(cursor_node.data, ConnectionNode)
+                assert cursor_node.data.config.name == "AppleDatabase"
 
     @pytest.mark.asyncio
     async def test_connection_picker_fuzzy_search_selects_correct_connection(self):
@@ -85,6 +85,5 @@ class TestConnectAction:
 
                 cursor_node = app.object_tree.cursor_node
                 assert cursor_node is not None
-                assert cursor_node.data is not None
-                assert cursor_node.data[0] == "connection"
-                assert cursor_node.data[1].name == "OrangeDB"
+                assert isinstance(cursor_node.data, ConnectionNode)
+                assert cursor_node.data.config.name == "OrangeDB"

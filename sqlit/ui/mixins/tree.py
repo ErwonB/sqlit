@@ -7,6 +7,18 @@ from typing import TYPE_CHECKING, Any
 from rich.markup import escape as escape_markup
 from textual.widgets import Tree
 
+from ..tree_nodes import (
+    ColumnNode,
+    ConnectionNode,
+    DatabaseNode,
+    FolderNode,
+    LoadingNode,
+    ProcedureNode,
+    SchemaNode,
+    TableNode,
+    ViewNode,
+)
+
 if TYPE_CHECKING:
     from ...config import ConnectionConfig
     from ...services import ConnectionSession
@@ -51,7 +63,7 @@ class TreeMixin:
             node = self.object_tree.root.add(
                 f"[dim]{escaped_name}[/dim] [{db_type_label}] ({display_info})"
             )
-            node.data = ("connection", conn)
+            node.data = ConnectionNode(config=conn)
             node.allow_expand = True
 
         if self.current_connection and self.current_config:
@@ -76,8 +88,8 @@ class TreeMixin:
 
         active_node = None
         for child in self.object_tree.root.children:
-            if child.data and child.data[0] == "connection":
-                if child.data[1].name == self.current_config.name:
+            if isinstance(child.data, ConnectionNode):
+                if child.data.config.name == self.current_config.name:
                     child.set_label(get_conn_label(self.current_config, connected=True))
                     active_node = child
                     break
@@ -86,7 +98,7 @@ class TreeMixin:
             active_node = self.object_tree.root.add(
                 get_conn_label(self.current_config, connected=True)
             )
-            active_node.data = ("connection", self.current_config)
+            active_node.data = ConnectionNode(config=self.current_config)
 
         active_node.remove_children()
 
@@ -98,12 +110,12 @@ class TreeMixin:
                     active_node.expand()
                 else:
                     dbs_node = active_node.add("Databases")
-                    dbs_node.data = ("folder", "databases")
+                    dbs_node.data = FolderNode(folder_type="databases")
 
                     databases = adapter.get_databases(self.current_connection)
                     for db_name in databases:
                         db_node = dbs_node.add(escape_markup(db_name))
-                        db_node.data = ("database", db_name)
+                        db_node.data = DatabaseNode(name=db_name)
                         db_node.allow_expand = True
                         self._add_database_object_nodes(db_node, db_name)
 
@@ -121,16 +133,16 @@ class TreeMixin:
     def _add_database_object_nodes(self, parent_node, database: str | None) -> None:
         """Add Tables, Views, and optionally Stored Procedures nodes."""
         tables_node = parent_node.add("Tables")
-        tables_node.data = ("folder", "tables", database)
+        tables_node.data = FolderNode(folder_type="tables", database=database)
         tables_node.allow_expand = True
 
         views_node = parent_node.add("Views")
-        views_node.data = ("folder", "views", database)
+        views_node.data = FolderNode(folder_type="views", database=database)
         views_node.allow_expand = True
 
         if self.current_adapter and self.current_adapter.supports_stored_procedures:
             procs_node = parent_node.add("Stored Procedures")
-            procs_node.data = ("folder", "procedures", database)
+            procs_node.data = FolderNode(folder_type="procedures", database=database)
             procs_node.allow_expand = True
 
     def _get_node_path(self, node) -> str:
@@ -138,20 +150,18 @@ class TreeMixin:
         parts = []
         current = node
         while current and current.parent:
-            if current.data:
-                data = current.data
-                if data[0] == "connection":
-                    parts.append(f"conn:{data[1].name}")
-                elif data[0] == "database":
-                    parts.append(f"db:{data[1]}")
-                elif data[0] == "folder":
-                    parts.append(f"folder:{data[1]}")
-                elif data[0] == "schema":
-                    parts.append(f"schema:{data[2]}")
-                elif data[0] in ("table", "view") and len(data) >= 4:
-                    schema_name = data[2]
-                    obj_name = data[3]
-                    parts.append(f"{data[0]}:{schema_name}.{obj_name}")
+            data = current.data
+            if isinstance(data, ConnectionNode):
+                parts.append(f"conn:{data.config.name}")
+            elif isinstance(data, DatabaseNode):
+                parts.append(f"db:{data.name}")
+            elif isinstance(data, FolderNode):
+                parts.append(f"folder:{data.folder_type}")
+            elif isinstance(data, SchemaNode):
+                parts.append(f"schema:{data.schema}")
+            elif isinstance(data, (TableNode, ViewNode)):
+                node_type = "table" if isinstance(data, TableNode) else "view"
+                parts.append(f"{node_type}:{data.schema}.{data.name}")
             current = current.parent
         return "/".join(reversed(parts))
 
@@ -204,9 +214,9 @@ class TreeMixin:
         children = list(node.children)
         if children:
             # Check if it's just a loading placeholder
-            if len(children) == 1 and children[0].data == ("loading",):
+            if len(children) == 1 and isinstance(children[0].data, LoadingNode):
                 return  # Already loading
-            if children[0].data != ("loading",):
+            if not isinstance(children[0].data, LoadingNode):
                 return  # Already loaded
 
         # Initialize _loading_nodes if not present
@@ -219,26 +229,26 @@ class TreeMixin:
             return  # Already loading this node
 
         # Handle table/view column expansion
-        if data[0] in ("table", "view") and len(data) >= 4:
+        if isinstance(data, (TableNode, ViewNode)):
             self._loading_nodes.add(node_path)
             loading_node = node.add_leaf("[dim italic]Loading...[/]")
-            loading_node.data = ("loading",)
+            loading_node.data = LoadingNode()
             self._load_columns_async(node, data)
             return
 
-        # Handle folder expansion
-        if data[0] == "folder" and len(data) >= 3:
+        # Handle folder expansion (database can be None for single-db adapters)
+        if isinstance(data, FolderNode):
             self._loading_nodes.add(node_path)
             loading_node = node.add_leaf("[dim italic]Loading...[/]")
-            loading_node.data = ("loading",)
+            loading_node.data = LoadingNode()
             self._load_folder_async(node, data)
             return
 
-    def _load_columns_async(self, node, data: tuple) -> None:
+    def _load_columns_async(self, node, data: TableNode | ViewNode) -> None:
         """Spawn worker to load columns for a table/view."""
-        db_name = data[1]
-        schema_name = data[2]
-        obj_name = data[3]
+        db_name = data.database
+        schema_name = data.schema
+        obj_name = data.name
 
         def work() -> None:
             """Run in worker thread."""
@@ -257,25 +267,25 @@ class TreeMixin:
 
         self.run_worker(work, name=f"load-columns-{obj_name}", thread=True, exclusive=False)
 
-    def _on_columns_loaded(self, node, db_name: str, schema_name: str, obj_name: str, columns: list) -> None:
+    def _on_columns_loaded(self, node, db_name: str | None, schema_name: str, obj_name: str, columns: list) -> None:
         """Handle column load completion on main thread."""
         node_path = self._get_node_path(node)
         self._loading_nodes.discard(node_path)
 
         for child in list(node.children):
-            if child.data == ("loading",):
+            if isinstance(child.data, LoadingNode):
                 child.remove()
 
         for col in columns:
             col_name = escape_markup(col.name)
             col_type = escape_markup(col.data_type)
             child = node.add_leaf(f"[dim]{col_name}[/] [italic dim]{col_type}[/]")
-            child.data = ("column", db_name, schema_name, obj_name, col.name)
+            child.data = ColumnNode(database=db_name, schema=schema_name, table=obj_name, name=col.name)
 
-    def _load_folder_async(self, node, data: tuple) -> None:
+    def _load_folder_async(self, node, data: FolderNode) -> None:
         """Spawn worker to load folder contents (tables/views/procedures)."""
-        folder_type = data[1]
-        db_name = data[2]
+        folder_type = data.folder_type
+        db_name = data.database
 
         def work() -> None:
             """Run in worker thread."""
@@ -311,7 +321,7 @@ class TreeMixin:
         self._loading_nodes.discard(node_path)
 
         for child in list(node.children):
-            if child.data == ("loading",):
+            if isinstance(child.data, LoadingNode):
                 child.remove()
 
         if not self._session:
@@ -325,7 +335,7 @@ class TreeMixin:
             for item in items:
                 if item[0] == "procedure":
                     child = node.add(escape_markup(item[1]))
-                    child.data = ("procedure", db_name, item[1])
+                    child.data = ProcedureNode(database=db_name, name=item[1])
 
     def _add_schema_grouped_items(
         self,
@@ -362,7 +372,7 @@ class TreeMixin:
                     display_name = schema if schema else default_schema
                     escaped_name = escape_markup(display_name)
                     schema_node = node.add(f"[dim]\\[{escaped_name}][/]")
-                    schema_node.data = ("schema", db_name, schema or default_schema, folder_type)
+                    schema_node.data = SchemaNode(database=db_name, schema=schema or default_schema, folder_type=folder_type)
                     schema_node.allow_expand = True
                     schema_nodes[schema] = schema_node
                 parent = schema_nodes[schema]
@@ -370,7 +380,10 @@ class TreeMixin:
             for item in schema_items:
                 item_type, schema_name, obj_name = item[0], item[1], item[2]
                 child = parent.add(escape_markup(obj_name))
-                child.data = (item_type, db_name, schema_name, obj_name)
+                if item_type == "table":
+                    child.data = TableNode(database=db_name, schema=schema_name, name=obj_name)
+                else:
+                    child.data = ViewNode(database=db_name, schema=schema_name, name=obj_name)
                 child.allow_expand = True
 
     def _on_tree_load_error(self, node, error_message: str) -> None:
@@ -379,7 +392,7 @@ class TreeMixin:
         self._loading_nodes.discard(node_path)
 
         for child in list(node.children):
-            if child.data == ("loading",):
+            if isinstance(child.data, LoadingNode):
                 child.remove()
 
         self.notify(escape_markup(error_message), severity="error")
@@ -392,8 +405,8 @@ class TreeMixin:
 
         data = node.data
 
-        if data[0] == "connection":
-            config = data[1]
+        if isinstance(data, ConnectionNode):
+            config = data.config
             if self.current_config and self.current_config.name == config.name:
                 return
             if self.current_connection:
@@ -431,11 +444,8 @@ class TreeMixin:
             return
 
         data = node.data
-        if data[0] not in ("table", "view") or len(data) < 4:
+        if not isinstance(data, (TableNode, ViewNode)):
             return
 
-        db_name = data[1]
-        schema_name = data[2]
-        obj_name = data[3]
-        self.query_input.text = self.current_adapter.build_select_query(obj_name, 100, db_name, schema_name)
+        self.query_input.text = self.current_adapter.build_select_query(data.name, 100, data.database, data.schema)
         self.action_execute_query()

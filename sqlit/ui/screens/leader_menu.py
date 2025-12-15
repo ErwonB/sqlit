@@ -7,25 +7,14 @@ from textual.binding import Binding
 from textual.screen import ModalScreen
 from textual.widgets import Static
 
-from ...state_machine import get_leader_commands
-
-
-def _make_menu_bindings():
-    """Generate bindings for the leader menu from leader commands."""
-    bindings = [
-        Binding("escape", "dismiss", "Close", show=False),
-        Binding("space", "dismiss", "Close", show=False),
-    ]
-    for cmd in get_leader_commands():
-        # Menu uses cmd_* action names which dismiss and return the target action
-        bindings.append(Binding(cmd.key, f"cmd_{cmd.action}", cmd.label, show=False))
-    return bindings
-
 
 class LeaderMenuScreen(ModalScreen):
     """Modal screen showing leader key commands."""
 
-    BINDINGS = _make_menu_bindings()
+    BINDINGS = [
+        Binding("escape", "dismiss", "Close", show=False),
+        Binding("space", "dismiss", "Close", show=False),
+    ]
 
     CSS = """
     LeaderMenuScreen {
@@ -47,11 +36,18 @@ class LeaderMenuScreen(ModalScreen):
 
     def __init__(self):
         super().__init__()
-        # Build lookup for cmd_* actions (rebuilt each time for testability)
-        self._cmd_actions = {cmd.action: cmd for cmd in get_leader_commands()}
+        from ...state_machine import get_leader_commands
+
+        leader_commands = get_leader_commands()
+        self._cmd_actions = {cmd.action: cmd for cmd in leader_commands}
+
+        for cmd in leader_commands:
+            self._bindings.bind(cmd.key, f"cmd_{cmd.action}", cmd.label, show=False)
 
     def compose(self) -> ComposeResult:
         """Generate menu content from leader commands."""
+        from ...state_machine import get_leader_commands
+
         lines = []
         leader_commands = get_leader_commands()
 

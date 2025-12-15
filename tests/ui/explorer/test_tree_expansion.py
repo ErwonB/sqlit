@@ -7,6 +7,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from sqlit.ui.mixins.tree import TreeMixin
+from sqlit.ui.tree_nodes import FolderNode, LoadingNode, SchemaNode, TableNode
 
 
 class MockTreeNode:
@@ -98,7 +99,7 @@ class TestTreeExpansion:
         tables = [("public", "users"), ("realtime", "messages")]
         mixin, adapter = self._create_mixin_with_adapter(tables)
 
-        tables_folder = MockTreeNode("Tables", ("folder", "tables", "mydb"))
+        tables_folder = MockTreeNode("Tables", FolderNode(folder_type="tables", database="mydb"))
 
         load_called = False
 
@@ -112,7 +113,7 @@ class TestTreeExpansion:
         mixin.on_tree_node_expanded(event)
 
         assert len(tables_folder.children) == 1
-        assert tables_folder.children[0].data == ("loading",)
+        assert isinstance(tables_folder.children[0].data, LoadingNode)
         assert load_called
 
     def test_expand_creates_schema_folders(self):
@@ -124,11 +125,11 @@ class TestTreeExpansion:
         ]
         mixin, adapter = self._create_mixin_with_adapter(tables)
 
-        tables_folder = MockTreeNode("Tables", ("folder", "tables", "mydb"))
+        tables_folder = MockTreeNode("Tables", FolderNode(folder_type="tables", database="mydb"))
 
         def mock_load_folder_async(node, data):
             items = [("table", s, t) for s, t in tables]
-            mixin._on_folder_loaded(node, data[2], data[1], items)
+            mixin._on_folder_loaded(node, data.database, data.folder_type, items)
 
         mixin._load_folder_async = mock_load_folder_async
 
@@ -138,7 +139,7 @@ class TestTreeExpansion:
         # Should have 2 schema folders (public, realtime)
         assert len(tables_folder.children) == 2
 
-        schema_names = [child.data[2] for child in tables_folder.children]
+        schema_names = [child.data.schema for child in tables_folder.children]
         assert "public" in schema_names
         assert "realtime" in schema_names
 
@@ -146,9 +147,9 @@ class TestTreeExpansion:
         """Expanding a folder with existing children should not reload."""
         mixin, adapter = self._create_mixin_with_adapter([("public", "users")])
 
-        tables_folder = MockTreeNode("Tables", ("folder", "tables", "mydb"))
+        tables_folder = MockTreeNode("Tables", FolderNode(folder_type="tables", database="mydb"))
         existing = tables_folder.add("users")
-        existing.data = ("table", "mydb", "public", "users")
+        existing.data = TableNode(database="mydb", schema="public", name="users")
 
         load_called = False
 
@@ -167,7 +168,7 @@ class TestTreeExpansion:
         """Expanding a table node should trigger column loading."""
         mixin, adapter = self._create_mixin_with_adapter([])
 
-        table_node = MockTreeNode("users", ("table", "mydb", "public", "users"))
+        table_node = MockTreeNode("users", TableNode(database="mydb", schema="public", name="users"))
 
         load_columns_called = False
 
@@ -181,7 +182,7 @@ class TestTreeExpansion:
         mixin.on_tree_node_expanded(event)
 
         assert load_columns_called
-        assert table_node.children[0].data == ("loading",)
+        assert isinstance(table_node.children[0].data, LoadingNode)
 
     def test_expand_without_connection_is_noop(self):
         """Expanding when not connected should do nothing."""
@@ -193,7 +194,7 @@ class TestTreeExpansion:
         mixin.object_tree = MockTree()
         mixin.call_later = lambda fn: None
 
-        tables_folder = MockTreeNode("Tables", ("folder", "tables", "mydb"))
+        tables_folder = MockTreeNode("Tables", FolderNode(folder_type="tables", database="mydb"))
 
         load_called = False
 
@@ -215,7 +216,7 @@ class TestTreeExpansion:
         mixin._loading_nodes = set()
         mixin._session = MockSession(MockAdapter([], "public"))
 
-        tables_folder = MockTreeNode("Tables", ("folder", "tables", "mydb"))
+        tables_folder = MockTreeNode("Tables", FolderNode(folder_type="tables", database="mydb"))
 
         items = [
             ("table", "public", "users"),
@@ -225,7 +226,7 @@ class TestTreeExpansion:
         mixin._on_folder_loaded(tables_folder, "mydb", "tables", items)
 
         for schema_folder in tables_folder.children:
-            assert schema_folder.data[0] == "schema"
+            assert isinstance(schema_folder.data, SchemaNode)
             for table_node in schema_folder.children:
-                assert table_node.data[0] == "table"
+                assert isinstance(table_node.data, TableNode)
                 assert table_node.allow_expand is True

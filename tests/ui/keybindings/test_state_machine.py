@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from sqlit.state_machine import UIStateMachine
+from sqlit.ui.tree_nodes import ConnectionNode
 from sqlit.widgets import VimMode
 
 
@@ -11,6 +12,9 @@ class TestStateMachineActionValidation:
 
     def test_edit_connection_only_allowed_on_connection_node(self):
         """edit_connection should only be allowed when tree is on a connection."""
+
+        class MockConfig:
+            name = "test-conn"
 
         class MockNode:
             def __init__(self, data=None):
@@ -47,9 +51,9 @@ class TestStateMachineActionValidation:
         # Tree focused but not on connection - blocked
         app.query_input.has_focus = False
         app.object_tree.has_focus = True
-        app.object_tree.cursor_node = MockNode(data=("table", "users"))
+        app.object_tree.cursor_node = MockNode(data="not_a_connection")
         assert sm.check_action(app, "edit_connection") is False
 
         # Tree focused on connection - allowed
-        app.object_tree.cursor_node = MockNode(data=("connection", None))
+        app.object_tree.cursor_node = MockNode(data=ConnectionNode(config=MockConfig()))
         assert sm.check_action(app, "edit_connection") is True

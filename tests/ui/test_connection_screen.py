@@ -157,6 +157,108 @@ class TestConnectionScreen:
             assert tabs.active == "tab-general"
 
 
+class TestTabNavigation:
+    """Tests for Tab key navigation through form fields."""
+
+    @pytest.mark.asyncio
+    async def test_sqlite_tab_navigation_excludes_tab_bar(self):
+        """Tab navigation should cycle through form fields only, not the tab bar.
+
+        For SQLite, the focusable fields should be:
+        conn-name -> dbtype-select -> file_path -> (back to conn-name)
+
+        The tab bar should NOT be included in this cycle.
+        """
+        config = ConnectionConfig(name="", db_type="sqlite", file_path="")
+        app = ConnectionScreenTestApp(config, editing=False)
+
+        async with app.run_test(size=(100, 35)) as pilot:
+            screen = app.screen
+
+            # Get the list of focusable fields
+            focusable = screen._get_focusable_fields()
+
+            # Verify tab bar is NOT in the focusable fields
+            from textual.widgets import Tabs
+
+            tab_bar_in_fields = any(isinstance(f, Tabs) for f in focusable)
+            assert not tab_bar_in_fields, "Tab bar should not be in focusable fields"
+
+            # Verify the expected fields are present
+            field_ids = [getattr(f, "id", None) for f in focusable]
+            assert "conn-name" in field_ids
+            assert "dbtype-select" in field_ids
+            assert "field-file_path" in field_ids
+
+            # For SQLite, there should be exactly 3 focusable fields
+            assert len(focusable) == 3, f"Expected 3 focusable fields for SQLite, got {len(focusable)}: {field_ids}"
+
+    @pytest.mark.asyncio
+    async def test_tab_key_cycles_through_sqlite_fields(self):
+        """Pressing Tab should cycle through SQLite form fields correctly."""
+        config = ConnectionConfig(name="", db_type="sqlite", file_path="")
+        app = ConnectionScreenTestApp(config, editing=False)
+
+        async with app.run_test(size=(100, 35)) as pilot:
+            screen = app.screen
+
+            # Focus should start on conn-name
+            conn_name = screen.query_one("#conn-name")
+            conn_name.focus()
+            await pilot.pause()
+            assert screen.focused.id == "conn-name"
+
+            # Tab to dbtype-select
+            await pilot.press("tab")
+            assert screen.focused.id == "dbtype-select"
+
+            # Tab to file_path
+            await pilot.press("tab")
+            assert screen.focused.id == "field-file_path"
+
+            # Tab should cycle back to conn-name (not to tab bar)
+            await pilot.press("tab")
+            assert screen.focused.id == "conn-name", "Tab should cycle back to conn-name, not go to tab bar"
+
+
+    @pytest.mark.asyncio
+    async def test_shift_tab_from_first_field_goes_to_tab_bar(self):
+        """Pressing Shift+Tab from the first field should focus the tab bar.
+
+        This allows users to navigate to the tab bar and switch tabs using
+        arrow keys, then press Tab/Down to go back into form fields.
+        """
+        # Use default (mssql) which has more fields and SSH tab enabled
+        app = ConnectionScreenTestApp()
+
+        async with app.run_test(size=(100, 35)) as pilot:
+            from textual.widgets import Tabs
+
+            screen = app.screen
+
+            # Focus should start on conn-name (first field)
+            conn_name = screen.query_one("#conn-name")
+            conn_name.focus()
+            await pilot.pause()
+            assert screen.focused.id == "conn-name"
+
+            # Verify we're on general tab
+            tabs = screen.query_one("#connection-tabs")
+            assert tabs.active == "tab-general"
+
+            # Shift+Tab should go to the tab bar
+            await pilot.press("shift+tab")
+
+            # Should still be on general tab (not switched)
+            assert tabs.active == "tab-general", "Shift+Tab should not switch tabs"
+
+            # Focus should be on the Tabs widget (tab bar)
+            assert isinstance(screen.focused, Tabs), (
+                f"Shift+Tab from first field should focus tab bar, "
+                f"but focused is {type(screen.focused).__name__}"
+            )
+
+
 class TestAdvancedTab:
     @pytest.mark.asyncio
     @pytest.mark.parametrize("db_type", _get_providers_with_advanced_tab())
