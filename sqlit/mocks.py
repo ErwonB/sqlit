@@ -245,6 +245,29 @@ def create_default_sqlite_adapter() -> MockDatabaseAdapter:
                     (3, 2, 3, 3, "2024-01-22"),
                 ],
             ),
+            # JOIN query results for demo
+            "join users": (
+                ["user", "product", "qty", "total", "order_date"],
+                [
+                    ("Alice Johnson", "Widget", 2, 19.98, "2024-01-20"),
+                    ("Alice Johnson", "Gadget", 1, 19.99, "2024-01-21"),
+                    ("Bob Smith", "Gizmo", 3, 89.97, "2024-01-22"),
+                ],
+            ),
+            "group by": (
+                ["customer", "total_orders", "total_spent"],
+                [
+                    ("Alice Johnson", 2, 39.97),
+                    ("Bob Smith", 1, 89.97),
+                ],
+            ),
+            "restock_urgency": (
+                ["name", "price", "stock", "restock_urgency"],
+                [
+                    ("Gizmo", 29.99, 25, "High"),
+                    ("Gadget", 19.99, 50, "Medium"),
+                ],
+            ),
         },
         default_schema="main",
         default_query_result=(
