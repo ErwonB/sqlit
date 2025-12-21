@@ -28,7 +28,7 @@ class MissingDriverHandler:
 
     def handle(self, app: AppProtocol, error: Exception, config: ConnectionConfig) -> None:
         from ..services.installer import Installer
-        from ..screens import PackageSetupScreen
+        from .screens import PackageSetupScreen
 
         app.push_screen(
             PackageSetupScreen(error, on_install=lambda err: Installer(app).install(err)),
@@ -45,7 +45,7 @@ class MissingOdbcDriverHandler:
     def handle(self, app: AppProtocol, error: Exception, config: ConnectionConfig) -> None:
         from ..config import save_connections
         from ..terminal import run_in_terminal
-        from ..screens import ConfirmScreen, DriverSetupScreen, MessageScreen
+        from .screens import ConfirmScreen, DriverSetupScreen, MessageScreen
 
         def on_confirm(confirmed: bool | None) -> None:
             if confirmed is not True:
