@@ -64,7 +64,7 @@ I had recently grown fond of Terminal UI's for their speed and keybinding focus.
 
 Something wasn't right. I asked myself, why is it that running SQL queries can't be enjoyable? So I created `sqlit`.
 
-`sqlit` is for the developer who just wants to query their database with a user friendly UI without their RAM being eaten alive. It is a lightweight, beautiful, and keyboard-driven TUI designed to make accessing your data enjoyable, fast and easy like it should be.
+`sqlit` is for the developer who just wants to query their database with a user friendly UI without their RAM being eaten alive. It is a lightweight, beautiful, and keyboard-driven TUI designed to make accessing your data enjoyable, fast and easy like it should be-- all from inside your favorite terminal.
 
 ## Installation
 
