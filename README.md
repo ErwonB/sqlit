@@ -21,7 +21,7 @@
 Sqlit supports all major DBMS's: SQL Server, PostgreSQL, MySQL, SQLite, MariaDB, FirebirdSQL, Oracle, DuckDB, CockroachDB, ClickHouse, Snowflake, Supabase, CloudFlare D1 and Turso.
 ![Database Providers](demos/demo-providers.gif)
 
-## **Query**
+### **Query**
 Syntax highlighting. History. VIM-like combos.
 ![Query History](demos/demo-history.gif)
 ### **Results**
