@@ -52,7 +52,7 @@ class ConnectionScreen(ModalScreen):
         Binding("escape", "cancel", "Cancel", priority=True),
         Binding("ctrl+s", "save", "Save", priority=True),
         Binding("ctrl+t", "test_connection", "Test", priority=True),
-        Binding("ctrl+i", "install_driver", "Install driver", show=False, priority=True),
+        Binding("ctrl+d", "install_driver", "Install driver", show=False, priority=True),
         Binding("tab", "next_field", "Next field", priority=True),
         Binding("shift+tab", "prev_field", "Previous field", priority=True),
         Binding("down", "focus_tab_content", "Focus content", show=False),

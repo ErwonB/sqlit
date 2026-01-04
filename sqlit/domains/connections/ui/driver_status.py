@@ -51,9 +51,9 @@ def build_driver_status_display(
             detail_hint = escape(detail) if detail else "Import failed."
             message = (
                 f"[yellow]⚠ Driver failed to load:[/] {error.package_name}\n"
-                f"[dim]{detail_hint} Press ^i for details.[/]"
+                f"[dim]{detail_hint} Press ^d for details.[/]"
             )
-            subtitle = "[bold]Help ^i[/]  Cancel <esc>"
+            subtitle = "[bold]Help ^d[/]  Cancel <esc>"
             return DriverStatusDisplay(message=message, subtitle=subtitle)
 
         strategy = strategy_resolver.detect(
@@ -66,15 +66,15 @@ def build_driver_status_display(
                 f"[yellow]⚠ Missing driver:[/] {error.package_name}\n"
                 f"[dim]Install with:[/] {escape(install_cmd)}"
             )
-            subtitle = "[bold]Install ^i[/]  Cancel <esc>"
+            subtitle = "[bold]Install ^d[/]  Cancel <esc>"
             return DriverStatusDisplay(message=message, subtitle=subtitle)
 
         reason = strategy.reason_unavailable or "Auto-install not available"
         message = (
             f"[yellow]⚠ Missing driver:[/] {error.package_name}\n"
-            f"[dim]{escape(reason)} Press ^i for install instructions.[/]"
+            f"[dim]{escape(reason)} Press ^d for install instructions.[/]"
         )
-        subtitle = "[bold]Help ^i[/]  Cancel <esc>"
+        subtitle = "[bold]Help ^d[/]  Cancel <esc>"
         return DriverStatusDisplay(message=message, subtitle=subtitle)
 
     if post_install_message:

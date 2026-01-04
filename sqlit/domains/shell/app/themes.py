@@ -186,9 +186,9 @@ SQLIT_THEMES = [
     # Terminal Default - uses ANSI colors from terminal
     Theme(
         name="textual-ansi",
-        primary="#FFFFFF",
+        primary="ansi_bright_blue",
         secondary="ansi_blue",
-        accent="ansi_blue",
+        accent="ansi_bright_blue",
         warning="ansi_yellow",
         error="ansi_red",
         success="ansi_green",
@@ -198,7 +198,20 @@ SQLIT_THEMES = [
         panel="ansi_default",
         dark=True,
         variables={
-            "border": "#555555",
+            "border": "ansi_bright_black",
+            "border-blurred": "ansi_black",
+            "button-color-foreground": "ansi_black",
+            "input-cursor-background": "ansi_bright_yellow",
+            "input-cursor-foreground": "ansi_black",
+            "input-selection-background": "ansi_bright_blue 70%",
+            "input-selection-foreground": "ansi_black",
+            "scrollbar": "ansi_bright_blue",
+            "scrollbar-hover": "ansi_bright_cyan",
+            "scrollbar-active": "ansi_bright_blue",
+            "scrollbar-background": "ansi_black",
+            "scrollbar-background-hover": "ansi_black",
+            "scrollbar-background-active": "ansi_black",
+            "scrollbar-corner-color": "ansi_black",
         },
     ),
     # Built-in theme overrides (only adding border variable for contrast)

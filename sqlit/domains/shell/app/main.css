@@ -3,12 +3,22 @@
     }
 
     TextArea {
+        background: $surface-darken-1;
         & > .text-area--cursor-line {
             background: transparent;
         }
         &:focus > .text-area--cursor-line {
             background: $surface-lighten-1;
         }
+    }
+
+    Input {
+        background: $surface-darken-1;
+    }
+
+    Input:focus,
+    TextArea:focus {
+        background: $surface;
     }
 
     DataTable.flash-cell:focus > .datatable--cursor,

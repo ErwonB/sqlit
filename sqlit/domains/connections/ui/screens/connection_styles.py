@@ -109,6 +109,10 @@ Tab:disabled {
     text-style: strike;
 }
 
+Tab.-active:ansi {
+    color: ansi_bright_blue;
+}
+
 Tab.has-error {
     color: $error;
 }
