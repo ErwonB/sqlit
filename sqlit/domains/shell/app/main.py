@@ -933,10 +933,11 @@ class SSMSTUI(
     def _apply_theme_classes(self) -> None:
         is_ansi = self.theme == "textual-ansi"
         self.set_class(is_ansi, "theme-ansi")
-        try:
-            self.screen.set_class(is_ansi, "theme-ansi")
-        except Exception:
-            pass
+        for screen in self.screen_stack:
+            try:
+                screen.set_class(is_ansi, "theme-ansi")
+            except Exception:
+                pass
 
     def watch_query_executing(self, old_value: bool, new_value: bool) -> None:
         """React to query execution status changes."""
