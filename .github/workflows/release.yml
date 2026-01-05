@@ -69,47 +69,43 @@ jobs:
         uses: pypa/gh-action-pypi-publish@release/v1
 
   aur:
-    needs: publish
+    needs: [build, publish]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Extract version
-        id: version
+      - name: Download dist artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+      - name: Extract version and checksum
+        id: info
         run: |
           if [ -n "${{ github.event.inputs.version }}" ]; then
-            echo "VERSION=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
+            VERSION="${{ github.event.inputs.version }}"
           else
-            echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+            VERSION="${GITHUB_REF#refs/tags/v}"
           fi
+          echo "VERSION=${VERSION}" >> $GITHUB_OUTPUT
 
-      - name: Wait for PyPI and get checksum
-        id: pypi
-        run: |
-          VERSION=${{ steps.version.outputs.VERSION }}
-          URL="https://files.pythonhosted.org/packages/source/s/sqlit-tui/sqlit_tui-${VERSION}.tar.gz"
-
-          echo "Waiting for package to be available on PyPI..."
-          for i in {1..20}; do
-            HTTP_CODE=$(curl -sI -o /dev/null -w "%{http_code}" "$URL")
-            if [ "$HTTP_CODE" = "200" ]; then
-              echo "Package available on PyPI (attempt $i)"
-              break
-            fi
-            echo "Waiting for PyPI... attempt $i (got HTTP $HTTP_CODE)"
-            sleep 30
-          done
-
-          # Download and compute checksum
-          curl -sL "$URL" -o /tmp/pkg.tar.gz
-          CHECKSUM=$(sha256sum /tmp/pkg.tar.gz | cut -d' ' -f1)
+          # Get checksum from the built artifact (no need to wait for PyPI)
+          TARBALL="dist/sqlit_tui-${VERSION}.tar.gz"
+          if [ ! -f "$TARBALL" ]; then
+            echo "::error::Tarball not found: $TARBALL"
+            ls -la dist/
+            exit 1
+          fi
+          CHECKSUM=$(sha256sum "$TARBALL" | cut -d' ' -f1)
           echo "CHECKSUM=${CHECKSUM}" >> $GITHUB_OUTPUT
+          echo "Version: ${VERSION}"
           echo "Checksum: ${CHECKSUM}"
 
       - name: Update PKGBUILD
         run: |
-          VERSION=${{ steps.version.outputs.VERSION }}
-          CHECKSUM=${{ steps.pypi.outputs.CHECKSUM }}
+          VERSION=${{ steps.info.outputs.VERSION }}
+          CHECKSUM=${{ steps.info.outputs.CHECKSUM }}
 
           cd aur
           sed -i "s/^pkgver=.*/pkgver=${VERSION}/" PKGBUILD
@@ -127,4 +123,4 @@ jobs:
           commit_username: Peter
           commit_email: peter.w.adams96@gmail.com
           ssh_private_key: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
-          commit_message: "Update to v${{ steps.version.outputs.VERSION }}"
+          commit_message: "Update to v${{ steps.info.outputs.VERSION }}"
