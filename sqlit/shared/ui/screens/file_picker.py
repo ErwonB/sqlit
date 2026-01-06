@@ -19,6 +19,7 @@ class FilePickerMode(Enum):
 
     SAVE = auto()  # Save a new file (filename can be new)
     OPEN = auto()  # Open an existing file (must select existing file)
+    DIRECTORY = auto()  # Select an existing directory
 
 
 class FilePickerScreen(ModalScreen[str | None]):
@@ -116,7 +117,14 @@ class FilePickerScreen(ModalScreen[str | None]):
         """
         super().__init__()
         self.mode = mode
-        self.title_text = title or ("Save File" if mode == FilePickerMode.SAVE else "Open File")
+        if title is not None:
+            self.title_text = title
+        elif mode == FilePickerMode.SAVE:
+            self.title_text = "Save File"
+        elif mode == FilePickerMode.DIRECTORY:
+            self.title_text = "Select Folder"
+        else:
+            self.title_text = "Open File"
         self.default_filename = default_filename
         self.file_extensions = [ext.lower() for ext in (file_extensions or [])]
         self._updating_input = False
@@ -145,6 +153,8 @@ class FilePickerScreen(ModalScreen[str | None]):
     def compose(self) -> ComposeResult:
         if self.mode == FilePickerMode.SAVE:
             shortcuts: list[tuple[str, str]] = [("Save", "s")]
+        elif self.mode == FilePickerMode.DIRECTORY:
+            shortcuts = [("Open", "enter"), ("Select", "s")]
         else:
             shortcuts = [("Select", "enter")]
         with Dialog(id="file-picker-dialog", title=self.title_text, shortcuts=shortcuts):
@@ -154,9 +164,10 @@ class FilePickerScreen(ModalScreen[str | None]):
             container.border_title = "Path"
             with container:
                 initial_value = str(self._current_dir / self._initial_filename) if self._initial_filename else str(self._current_dir)
+                placeholder = "/path/to/folder" if self.mode == FilePickerMode.DIRECTORY else "/path/to/file"
                 yield Input(
                     value=initial_value,
-                    placeholder="/path/to/file",
+                    placeholder=placeholder,
                     id="path-input",
                 )
 
@@ -177,6 +188,7 @@ class FilePickerScreen(ModalScreen[str | None]):
         await list_view.clear()
         self._entries: list[Path | None] = []
         items: list[ListItem] = []
+        show_files = self.mode != FilePickerMode.DIRECTORY
 
         # Add parent directory entry
         if self._current_dir.parent != self._current_dir:
@@ -199,7 +211,7 @@ class FilePickerScreen(ModalScreen[str | None]):
                 item = ListItem(Static(f"📁 {entry.name}"))
                 items.append(item)
                 self._entries.append(entry)
-            elif self._matches_extension(entry):
+            elif show_files and self._matches_extension(entry):
                 item = ListItem(Static(f"📄 {entry.name}"))
                 items.append(item)
                 self._entries.append(entry)
@@ -295,6 +307,16 @@ class FilePickerScreen(ModalScreen[str | None]):
 
         path = Path(path_str).expanduser()
 
+        if self.mode == FilePickerMode.DIRECTORY:
+            if not path.exists():
+                self.notify("Folder does not exist", severity="warning")
+                return
+            if not path.is_dir():
+                self.notify("Select a folder", severity="warning")
+                return
+            self.dismiss(str(path))
+            return
+
         # If it's a directory, navigate into it
         if path.is_dir():
             self._current_dir = path.resolve()
@@ -327,7 +349,7 @@ class FilePickerScreen(ModalScreen[str | None]):
             file_list.focus()
 
     async def action_save(self) -> None:
-        if self.mode != FilePickerMode.SAVE:
+        if self.mode == FilePickerMode.OPEN:
             return
         path_input = self.query_one("#path-input", Input)
         await self._submit_path(path_input.value)
@@ -338,6 +360,6 @@ class FilePickerScreen(ModalScreen[str | None]):
     def check_action(self, action: str, parameters: tuple) -> bool | None:
         if self.app.screen is not self:
             return False
-        if action == "save" and self.mode != FilePickerMode.SAVE:
+        if action == "save" and self.mode == FilePickerMode.OPEN:
             return False
         return super().check_action(action, parameters)

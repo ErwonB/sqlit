@@ -70,7 +70,7 @@ class FieldWidgetBuilder:
             self._field_definitions[field_def.name] = field_def
             container.compose_add_child(option_list)
             container.compose_add_child(Static("", id=f"error-{field_def.name}", classes="error-text hidden"))
-        elif field_def.field_type == FieldType.FILE:
+        elif field_def.field_type in (FieldType.FILE, FieldType.DIRECTORY):
             value = self._get_field_value(field_def.name) or field_def.default
             input_widget = Input(
                 value=value,

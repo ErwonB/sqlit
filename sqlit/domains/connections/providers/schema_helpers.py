@@ -17,6 +17,7 @@ class FieldType(Enum):
     SELECT = "select"
     DROPDOWN = "dropdown"
     FILE = "file"
+    DIRECTORY = "directory"
 
 
 @dataclass(frozen=True)

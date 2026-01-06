@@ -70,7 +70,7 @@ SCHEMA = ConnectionSchema(
         SchemaField(
             name="oracle_client_lib_dir",
             label="Client Library Path",
-            field_type=FieldType.FILE,
+            field_type=FieldType.DIRECTORY,
             placeholder="/path/to/instantclient",
             description="Oracle Instant Client library directory.",
             visible_when=_oracle_thick_mode_enabled,

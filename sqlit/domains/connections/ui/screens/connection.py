@@ -158,6 +158,7 @@ class ConnectionScreen(ModalScreen):
     def _on_browse_file(self, field_name: str) -> None:
         """Open file picker for a file field."""
         from sqlit.shared.ui.screens.file_picker import FilePickerMode, FilePickerScreen
+        from sqlit.domains.connections.ui.fields import FieldType
 
         # Get current value from the field
         current_value = ""
@@ -166,9 +167,14 @@ class ConnectionScreen(ModalScreen):
             if isinstance(widget, Input):
                 current_value = widget.value
 
-        # Determine file extensions based on field
+        field_def = self._form.field_definitions.get(field_name)
+        mode = FilePickerMode.OPEN
+        title = "Select File"
         file_extensions: list[str] | None = None
-        if field_name == "file_path":
+        if field_def and field_def.field_type == FieldType.DIRECTORY:
+            mode = FilePickerMode.DIRECTORY
+            title = "Select Folder"
+        elif field_name == "file_path":
             # SQLite/DuckDB database files
             file_extensions = [".db", ".sqlite", ".sqlite3", ".duckdb"]
 
@@ -180,8 +186,8 @@ class ConnectionScreen(ModalScreen):
 
         self.app.push_screen(
             FilePickerScreen(
-                mode=FilePickerMode.OPEN,
-                title="Select File",
+                mode=mode,
+                title=title,
                 start_path=current_value if current_value else None,
                 file_extensions=file_extensions,
             ),

@@ -225,4 +225,4 @@ class ConnectionFormController:
 
     def is_file_field(self, field_name: str) -> bool:
         field_def = self.field_definitions.get(field_name)
-        return bool(field_def and field_def.field_type == FieldType.FILE)
+        return bool(field_def and field_def.field_type in (FieldType.FILE, FieldType.DIRECTORY))
