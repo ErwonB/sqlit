@@ -61,5 +61,9 @@ class ErrorScreen(ModalScreen):
     def action_copy_message(self) -> None:
         from sqlit.shared.ui.widgets import flash_widget
 
-        self.app.copy_to_clipboard(self.message)
+        copy_fn = getattr(self.app, "_copy_text", None)
+        if callable(copy_fn):
+            copy_fn(self.message)
+        else:
+            self.app.copy_to_clipboard(self.message)
         flash_widget(self.query_one("#error-message", Static))

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sys
 from typing import Any
 
 from sqlit.shared.ui.protocols import ResultsMixinHost
@@ -21,6 +22,16 @@ class ResultsMixin:
     def _copy_text(self: ResultsMixinHost, text: str) -> bool:
         """Copy text to clipboard if possible, otherwise store internally."""
         self._internal_clipboard = text
+
+        if sys.platform == "darwin":
+            # Prefer pyperclip on macOS; Textual's copy_to_clipboard can no-op.
+            try:
+                import pyperclip  # type: ignore
+
+                pyperclip.copy(text)
+                return True
+            except Exception:
+                pass
 
         # Prefer Textual's clipboard support (OSC52 where available).
         try:

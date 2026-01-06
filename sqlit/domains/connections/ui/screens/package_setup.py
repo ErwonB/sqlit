@@ -163,7 +163,11 @@ class PackageSetupScreen(ModalScreen):
 
         command = self._get_selected_option()
         if command:
-            self.app.copy_to_clipboard(command)
+            copy_fn = getattr(self.app, "_copy_text", None)
+            if callable(copy_fn):
+                copy_fn(command)
+            else:
+                self.app.copy_to_clipboard(command)
             flash_widget(self.query_one("#install-options", OptionList))
 
     def action_cancel(self) -> None:
