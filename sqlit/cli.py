@@ -173,6 +173,18 @@ def _resolve_startup_import_settings(argv: list[str]) -> tuple[Path | None, floa
     return log_path, min_ms
 
 
+def _exec_restart(argv: list[str]) -> None:
+    if not argv:
+        argv = [sys.executable]
+    exe = argv[0]
+    has_sep = os.sep in exe or (os.altsep and os.altsep in exe)
+    # execv doesn't search PATH; use execvp for bare commands (e.g. "sqlit").
+    if has_sep:
+        os.execv(exe, argv)
+    else:
+        os.execvp(exe, argv)
+
+
 def _build_runtime(args: argparse.Namespace, startup_mark: float) -> RuntimeConfig:
     settings_path = Path(args.settings).expanduser() if args.settings else None
     max_rows = args.max_rows if args.max_rows and args.max_rows > 0 else None
@@ -512,6 +524,13 @@ def main() -> int:
 
         app = SSMSTUI(services=services, startup_connection=temp_config)
         app.run()
+        if getattr(app, "_restart_requested", False):
+            argv = getattr(app, "_restart_argv", None) or app._compute_restart_argv()
+            try:
+                _exec_restart(argv)
+            except OSError as exc:
+                print(f"Failed to restart sqlit: {exc}", file=sys.stderr)
+                return 1
         return 0
 
     from sqlit.domains.connections.cli.commands import (

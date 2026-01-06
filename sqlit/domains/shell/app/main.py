@@ -190,6 +190,7 @@ class SSMSTUI(
         self._state_machine = UIStateMachine()
         self._last_query_table: dict[str, Any] | None = None
         self._query_target_database: str | None = None  # Target DB for auto-generated queries
+        self._restart_requested: bool = False
         # Idle scheduler for background work
         self._idle_scheduler: IdleScheduler | None = None
         self._startup_stamp("init_end")
@@ -850,14 +851,11 @@ class SSMSTUI(
         return [sys.executable]
 
     def restart(self) -> None:
-        """Restart the current process in-place."""
-        argv = getattr(self, "_restart_argv", None) or self._compute_restart_argv()
-        exe = argv[0]
-        # execv doesn't search PATH; use execvp for bare commands (e.g. "sqlit").
-        if os.sep in exe:
-            os.execv(exe, argv)
-        else:
-            os.execvp(exe, argv)
+        """Request a clean restart after the app exits."""
+        if getattr(self, "_restart_argv", None) is None:
+            self._restart_argv = self._compute_restart_argv()
+        self._restart_requested = True
+        self.exit()
 
     def compose(self) -> ComposeResult:
         self._startup_stamp("compose_start")
