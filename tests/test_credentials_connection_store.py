@@ -203,6 +203,38 @@ class TestConnectionStoreWithCredentials:
         # Credentials service should not have a password
         assert self.creds_service.get_password("test_db") is None
 
+    def test_save_connection_keeps_other_passwords_when_ui_loaded_without_credentials(self) -> None:
+        """Regression test: UI loads connections without credentials, then saves a new one."""
+        from sqlit.domains.connections.app.save_connection import save_connection
+
+        store = self._create_store()
+
+        existing = ConnectionConfig(
+            name="conn_a",
+            db_type="postgresql",
+            server="localhost",
+            username="user_a",
+            password="secret_a",
+        )
+        store.save_all([existing])
+
+        # UI startup loads connections without credentials; password will be None in the list.
+        connections = store.load_all(load_credentials=False)
+
+        new_conn = ConnectionConfig(
+            name="conn_b",
+            db_type="postgresql",
+            server="localhost",
+            username="user_b",
+            password="secret_b",
+        )
+
+        result = save_connection(connections, store, new_conn)
+        assert result.saved is True
+
+        # Existing password should remain in credentials service.
+        assert self.creds_service.get_password("conn_a") == "secret_a"
+
     def test_migration_from_plaintext_preserves_existing_passwords(self) -> None:
         """Test that existing plaintext passwords in JSON are preserved during migration."""
         # Write a config file WITH passwords (simulating old format)
