@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any
 
 from sqlit.domains.query.store.history import QueryHistoryEntry
@@ -39,11 +40,22 @@ class InMemoryHistoryStore:
         return [QueryHistoryEntry.from_dict(entry) for entry in self._entries]
 
     def save_query(self, connection_name: str, query: str) -> None:
-        self._entries.append({
-            "query": query.strip(),
-            "timestamp": "",
-            "connection_name": connection_name,
-        })
+        query_stripped = query.strip()
+        now = datetime.now().isoformat()
+
+        # Check if query already exists
+        for entry in self._entries:
+            if entry.get("connection_name") == connection_name and entry.get("query", "").strip() == query_stripped:
+                entry["timestamp"] = now
+                break
+        else:
+            self._entries.append(
+                {
+                    "query": query_stripped,
+                    "timestamp": now,
+                    "connection_name": connection_name,
+                }
+            )
 
     def delete_entry(self, connection_name: str, timestamp: str) -> bool:
         return False
