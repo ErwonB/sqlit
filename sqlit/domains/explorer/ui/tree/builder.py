@@ -549,12 +549,6 @@ def update_connection_state(
     # Update new connected node and populate it
     if new_config is not None and host.current_connection is not None:
         populate_connected_tree(host)
-        try:
-            from . import loaders as tree_loaders
-        except Exception:
-            tree_loaders = None
-        if tree_loaders is not None:
-            tree_loaders.ensure_expanded_nodes_loaded(host, host.object_tree.root)
 
 
 def remove_connection_nodes(host: TreeMixinHost, names: set[str]) -> None:
