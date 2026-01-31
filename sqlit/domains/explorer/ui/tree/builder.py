@@ -523,9 +523,10 @@ def add_database_object_nodes(host: TreeMixinHost, parent_node: Any, database: s
     caps = host.current_provider.capabilities
     node_provider = host.current_provider.explorer_nodes
 
+    primary = getattr(getattr(host, "current_theme", None), "primary", "#7E9CD8")
     for folder in node_provider.get_root_folders(caps):
         if folder.requires(caps):
-            folder_node = parent_node.add(folder.label)
+            folder_node = parent_node.add(f"[{primary}]{folder.label}[/]")
             folder_node.data = FolderNode(folder_type=folder.kind, database=database)
             folder_node.allow_expand = True
         else:
