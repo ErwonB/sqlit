@@ -292,29 +292,33 @@ class TreeFilterMixin:
         ancestor_ids: set,
         visible: bool,
     ) -> None:
-        """Recursively set node visibility."""
+        """Recursively set node visibility by removing non-matching nodes."""
+        # Collect nodes to remove (can't modify children while iterating)
+        nodes_to_remove: list[Any] = []
+
         for child in node.children:
             child_id = id(child)
             is_match = child_id in match_ids
             is_ancestor = child_id in ancestor_ids
             should_show = is_match or is_ancestor or not self._tree_filter_query
 
-            # Use display style to hide/show
-            # Note: Textual Tree doesn't have per-node visibility,
-            # so we'll dim non-matching nodes instead
             if not should_show and self._tree_filter_query:
-                # Dim non-matching nodes
-                original = self._tree_original_labels.get(child_id, str(child.label))
-                if child_id not in self._tree_original_labels:
-                    self._tree_original_labels[child_id] = original
-                child.set_label(f"[dim]{escape_markup(self._get_node_label_text(child))}[/]")
+                # Mark for removal
+                nodes_to_remove.append(child)
+            else:
+                # Recurse into visible nodes
+                self._set_node_visibility(child, match_ids, ancestor_ids, should_show)
 
-            self._set_node_visibility(child, match_ids, ancestor_ids, should_show)
+        # Remove non-matching nodes
+        for child in nodes_to_remove:
+            try:
+                child.remove()
+            except Exception:
+                pass
 
     def _show_all_tree_nodes(self: TreeFilterMixinHost) -> None:
-        """Show all tree nodes (remove filter dimming)."""
-        # Labels are restored by _restore_tree_labels
-        pass
+        """Rebuild the tree to restore all nodes after filtering."""
+        self.refresh_tree()
 
     def _restore_tree_labels(self: TreeFilterMixinHost) -> None:
         """Restore original labels for all modified nodes."""
