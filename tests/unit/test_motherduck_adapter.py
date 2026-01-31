@@ -36,16 +36,16 @@ def test_motherduck_schema_uses_password_field():
     from sqlit.domains.connections.providers.motherduck.schema import SCHEMA
 
     field_names = [f.name for f in SCHEMA.fields]
-    assert "default_database" in field_names
+    assert "database" in field_names
     assert "password" in field_names  # Uses standard password field for token
 
     # Password field should be labeled as "Access Token"
     password_field = next(f for f in SCHEMA.fields if f.name == "password")
     assert password_field.label == "Access Token"
 
-    # Database field should be labeled as "Default Database"
-    db_field = next(f for f in SCHEMA.fields if f.name == "default_database")
-    assert db_field.label == "Default Database"
+    # Database field should be optional (empty = browse all)
+    db_field = next(f for f in SCHEMA.fields if f.name == "database")
+    assert db_field.required is False
 
 
 def test_motherduck_supports_multiple_databases():

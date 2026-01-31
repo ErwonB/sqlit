@@ -37,20 +37,24 @@ class MotherDuckAdapter(DuckDBAdapter):
             package_name=self.install_package,
         )
 
-        # Get default database from options
-        database = config.get_option("default_database", "")
+        # Get database from endpoint (optional - empty means browse all)
+        database = ""
+        if config.tcp_endpoint:
+            database = config.tcp_endpoint.database or ""
 
         # Get token from tcp_endpoint.password (stored in keyring)
         token = ""
         if config.tcp_endpoint:
             token = config.tcp_endpoint.password or ""
 
-        if not database:
-            raise ValueError("MotherDuck connections require a database name.")
         if not token:
             raise ValueError("MotherDuck connections require an access token.")
 
-        conn_str = f"md:{database}?motherduck_token={token}"
+        # Connect with or without specific database
+        if database:
+            conn_str = f"md:{database}?motherduck_token={token}"
+        else:
+            conn_str = f"md:?motherduck_token={token}"
 
         duckdb_any: Any = duckdb
         return duckdb_any.connect(conn_str)

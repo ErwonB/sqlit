@@ -11,10 +11,10 @@ SCHEMA = ConnectionSchema(
     display_name="MotherDuck",
     fields=(
         SchemaField(
-            name="default_database",
-            label="Default Database",
-            placeholder="my_database",
-            required=True,
+            name="database",
+            label="Database",
+            placeholder="(empty = browse all)",
+            required=False,
         ),
         SchemaField(
             name="password",
