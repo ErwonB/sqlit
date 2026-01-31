@@ -42,3 +42,36 @@ def test_motherduck_schema_uses_password_field():
     # Password field should be labeled as "Access Token"
     password_field = next(f for f in SCHEMA.fields if f.name == "password")
     assert password_field.label == "Access Token"
+
+
+def test_motherduck_build_select_query_with_database():
+    """Test MotherDuck uses three-part names (database.schema.table)."""
+    from sqlit.domains.connections.providers.motherduck.adapter import MotherDuckAdapter
+
+    adapter = MotherDuckAdapter()
+
+    # With database - should use three-part name
+    query = adapter.build_select_query("hacker_news", 100, database="sample_data", schema="hn")
+    assert query == 'SELECT * FROM "sample_data"."hn"."hacker_news" LIMIT 100'
+
+
+def test_motherduck_build_select_query_without_database():
+    """Test MotherDuck falls back to two-part names without database."""
+    from sqlit.domains.connections.providers.motherduck.adapter import MotherDuckAdapter
+
+    adapter = MotherDuckAdapter()
+
+    # Without database - should use two-part name
+    query = adapter.build_select_query("my_table", 50, schema="main")
+    assert query == 'SELECT * FROM "main"."my_table" LIMIT 50'
+
+
+def test_motherduck_build_select_query_default_schema():
+    """Test MotherDuck defaults to 'main' schema."""
+    from sqlit.domains.connections.providers.motherduck.adapter import MotherDuckAdapter
+
+    adapter = MotherDuckAdapter()
+
+    # No schema specified - should default to main
+    query = adapter.build_select_query("my_table", 25, database="my_db")
+    assert query == 'SELECT * FROM "my_db"."main"."my_table" LIMIT 25'
