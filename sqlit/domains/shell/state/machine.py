@@ -317,7 +317,9 @@ class UIStateMachine:
         # ═══════════════════════════════════════════════════════════════════
         lines.append(section("SETTINGS"))
         lines.append(binding(":alert off|delete|write", "Confirm risky queries"))
-        lines.append(binding("settings.json: show_line_numbers", "Show line numbers in query editor"))
-        lines.append(binding("settings.json: relative_line_numbers", "Relative line numbers in query editor"))
+        lines.append(binding(":set number, :set nu", "Show line numbers"))
+        lines.append(binding(":set nonumber, :set nonu", "Hide line numbers"))
+        lines.append(binding(":set relativenumber, :set rnu", "Show relative line numbers"))
+        lines.append(binding(":set norelativenumber, :set nornu", "Show absolute line numbers"))
 
         return "\n".join(lines)
